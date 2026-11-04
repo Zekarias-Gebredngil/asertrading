@@ -14,8 +14,6 @@ import java.util.Map;
 @Service
 public class ExcelExportService {
 
-    public record SheetData(String sheetName, List<String> headers, List<List<Object>> rows) {}
-
     /**
      * Builds a single-sheet Excel workbook as a byte array
      */

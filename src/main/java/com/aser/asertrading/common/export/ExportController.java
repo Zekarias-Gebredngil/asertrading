@@ -54,6 +54,14 @@ public class ExportController {
 
     private static final String EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+    private List<Object> row(Object... items) {
+        List<Object> r = new ArrayList<>(items.length);
+        for (Object item : items) {
+            r.add(item != null ? item : "");
+        }
+        return r;
+    }
+
     @GetMapping("/inventory")
     @Operation(summary = "Export inventory balances to Excel (all records or requested page)")
     public ResponseEntity<byte[]> exportInventory(
@@ -71,19 +79,19 @@ public class ExportController {
                 "Weighted Avg Cost (ETB)", "Total Valuation (ETB)", "Status"
         );
 
-        List<List<Object>> rows = balancesPage.getContent().stream().map(b -> List.<Object>of(
-                b.productSku() != null ? b.productSku() : "",
-                b.productName() != null ? b.productName() : "",
-                b.categoryName() != null ? b.categoryName() : "General",
-                b.branchName() != null ? b.branchName() : "",
-                b.warehouseName() != null ? b.warehouseName() : "",
-                b.onHandQuantity() != null ? b.onHandQuantity() : BigDecimal.ZERO,
-                b.reservedQuantity() != null ? b.reservedQuantity() : BigDecimal.ZERO,
-                b.availableQuantity() != null ? b.availableQuantity() : BigDecimal.ZERO,
-                b.unitSymbol() != null ? b.unitSymbol() : "piece",
-                b.weightedAverageCost() != null ? b.weightedAverageCost() : BigDecimal.ZERO,
-                b.totalValuation() != null ? b.totalValuation() : BigDecimal.ZERO,
-                b.status() != null ? b.status() : ""
+        List<List<Object>> rows = balancesPage.getContent().stream().map(b -> row(
+                b.productSku(),
+                b.productName(),
+                b.categoryName(),
+                b.branchName(),
+                b.warehouseName(),
+                b.onHandQuantity(),
+                b.reservedQuantity(),
+                b.availableQuantity(),
+                b.unitSymbol(),
+                b.weightedAverageCost(),
+                b.totalValuation(),
+                b.status()
         )).toList();
 
         byte[] bytes = excelExportService.exportToExcel("Stock Balances", headers, rows);
@@ -113,21 +121,21 @@ public class ExportController {
                 "Quantity Delta", "Unit", "Unit Cost (ETB)", "Total Cost (ETB)", "Reference Type", "Reference ID", "Actor", "Notes"
         );
 
-        List<List<Object>> rows = movementsPage.getContent().stream().map(m -> List.<Object>of(
-                m.createdAt() != null ? m.createdAt().toString() : "",
+        List<List<Object>> rows = movementsPage.getContent().stream().map(m -> row(
+                m.createdAt(),
                 m.movementType() != null ? m.movementType().name() : "",
-                m.productSku() != null ? m.productSku() : "",
-                m.productName() != null ? m.productName() : "",
-                m.branchName() != null ? m.branchName() : "",
-                m.warehouseName() != null ? m.warehouseName() : "",
-                m.quantityDelta() != null ? m.quantityDelta() : BigDecimal.ZERO,
-                m.unitSymbol() != null ? m.unitSymbol() : "piece",
-                m.unitCost() != null ? m.unitCost() : BigDecimal.ZERO,
-                m.totalCost() != null ? m.totalCost() : BigDecimal.ZERO,
+                m.productSku(),
+                m.productName(),
+                m.branchName(),
+                m.warehouseName(),
+                m.quantityDelta(),
+                m.unitSymbol(),
+                m.unitCost(),
+                m.totalCost(),
                 m.referenceType() != null ? m.referenceType().name() : "",
-                m.referenceId() != null ? m.referenceId() : "",
-                m.actor() != null ? m.actor() : "",
-                m.notes() != null ? m.notes() : ""
+                m.referenceId(),
+                m.actor(),
+                m.notes()
         )).toList();
 
         byte[] bytes = excelExportService.exportToExcel("Stock Movements", headers, rows);
@@ -156,21 +164,21 @@ public class ExportController {
                 "Subtotal (ETB)", "Delivery Fee (ETB)", "Total Amount (ETB)", "Payment Method", "Payment Status"
         );
 
-        List<List<Object>> rows = ordersPage.getContent().stream().map(o -> List.<Object>of(
-                o.orderNumber() != null ? o.orderNumber() : "",
-                o.createdAt() != null ? o.createdAt().toString() : "",
-                o.customerName() != null ? o.customerName() : "",
-                o.customerPhone() != null ? o.customerPhone() : "",
-                o.customerEmail() != null ? o.customerEmail() : "",
+        List<List<Object>> rows = ordersPage.getContent().stream().map(o -> row(
+                o.orderNumber(),
+                o.createdAt(),
+                o.customerName(),
+                o.customerPhone(),
+                o.customerEmail(),
                 o.deliveryType() != null ? o.deliveryType().name() : "",
-                o.collectionBranchName() != null ? o.collectionBranchName() : "",
-                o.deliveryAddress() != null ? o.deliveryAddress() : "",
+                o.collectionBranchName(),
+                o.deliveryAddress(),
                 o.status() != null ? o.status().name() : "",
-                o.subtotal() != null ? o.subtotal() : BigDecimal.ZERO,
-                o.deliveryFee() != null ? o.deliveryFee() : BigDecimal.ZERO,
-                o.totalAmount() != null ? o.totalAmount() : BigDecimal.ZERO,
-                o.paymentMethod() != null ? o.paymentMethod() : "",
-                o.paymentStatus() != null ? o.paymentStatus() : ""
+                o.subtotal(),
+                o.deliveryFee(),
+                o.totalAmount(),
+                o.paymentMethod(),
+                o.paymentStatus()
         )).toList();
 
         byte[] bytes = excelExportService.exportToExcel("Customer Orders", headers, rows);
@@ -201,17 +209,17 @@ public class ExportController {
                 "Pricing Model", "Availability", "Reorder Threshold", "Total Stock On Hand", "Published", "Status"
         );
 
-        List<List<Object>> rows = productsPage.getContent().stream().map(p -> List.<Object>of(
-                p.sku() != null ? p.sku() : "",
-                p.name() != null ? p.name() : "",
-                p.categoryName() != null ? p.categoryName() : "",
+        List<List<Object>> rows = productsPage.getContent().stream().map(p -> row(
+                p.sku(),
+                p.name(),
+                p.categoryName(),
                 p.baseUnitSymbol() != null ? p.baseUnitSymbol() : (p.baseUnitName() != null ? p.baseUnitName() : "piece"),
-                p.purchaseCost() != null ? p.purchaseCost() : BigDecimal.ZERO,
-                p.sellingPrice() != null ? p.sellingPrice() : BigDecimal.ZERO,
+                p.purchaseCost(),
+                p.sellingPrice(),
                 p.isQuotationOnly() ? "Quotation" : "Fixed",
                 p.availability() != null ? p.availability().name() : "",
-                p.reorderThreshold() != null ? p.reorderThreshold() : BigDecimal.ZERO,
-                p.totalStockOnHand() != null ? p.totalStockOnHand() : BigDecimal.ZERO,
+                p.reorderThreshold(),
+                p.totalStockOnHand(),
                 p.isPublished() ? "Published" : "Draft",
                 p.status() != null ? p.status().name() : ""
         )).toList();
@@ -241,17 +249,17 @@ public class ExportController {
                 "Items Count", "Requested By", "Approved By", "Dispatched By", "Received By", "Notes"
         );
 
-        List<List<Object>> rows = transfersPage.getContent().stream().map(t -> List.<Object>of(
-                t.transferNumber() != null ? t.transferNumber() : "",
-                t.sourceWarehouseName() != null ? t.sourceWarehouseName() : "",
-                t.destinationWarehouseName() != null ? t.destinationWarehouseName() : "",
+        List<List<Object>> rows = transfersPage.getContent().stream().map(t -> row(
+                t.transferNumber(),
+                t.sourceWarehouseName(),
+                t.destinationWarehouseName(),
                 t.status() != null ? t.status().name() : "",
                 t.items() != null ? t.items().size() : 0,
-                t.requestedBy() != null ? t.requestedBy() : "",
-                t.approvedBy() != null ? t.approvedBy() : "",
-                t.dispatchedBy() != null ? t.dispatchedBy() : "",
-                t.receivedBy() != null ? t.receivedBy() : "",
-                t.notes() != null ? t.notes() : ""
+                t.requestedBy(),
+                t.approvedBy(),
+                t.dispatchedBy(),
+                t.receivedBy(),
+                t.notes()
         )).toList();
 
         byte[] bytes = excelExportService.exportToExcel("Branch Transfers", headers, rows);
@@ -280,15 +288,15 @@ public class ExportController {
                 "Record ID", "Timestamp", "Actor", "Action", "Entity Module", "Entity ID", "Forensic Details", "IP Address"
         );
 
-        List<List<Object>> rows = logsPage.getContent().stream().map(l -> List.<Object>of(
-                l.getId() != null ? l.getId() : 0L,
-                l.getCreatedAt() != null ? l.getCreatedAt().toString() : "",
-                l.getActor() != null ? l.getActor() : "",
-                l.getAction() != null ? l.getAction() : "",
-                l.getEntityType() != null ? l.getEntityType() : "",
-                l.getEntityId() != null ? l.getEntityId() : "",
-                l.getDetails() != null ? l.getDetails() : "",
-                l.getIpAddress() != null ? l.getIpAddress() : ""
+        List<List<Object>> rows = logsPage.getContent().stream().map(l -> row(
+                l.getId(),
+                l.getCreatedAt(),
+                l.getActor(),
+                l.getAction(),
+                l.getEntityType(),
+                l.getEntityId(),
+                l.getDetails(),
+                l.getIpAddress()
         )).toList();
 
         byte[] bytes = excelExportService.exportToExcel("System Audit Trail", headers, rows);
@@ -308,7 +316,7 @@ public class ExportController {
         StockValuationReportDto val = reportingService.getStockValuation();
         TransferReportDto xfer = reportingService.getTransferReport();
 
-        List<ExcelExportService.SheetData> sheets = new ArrayList<>();
+        List<SheetData> sheets = new ArrayList<>();
 
         long completed = (sales != null && sales.ordersByStatus() != null)
                 ? sales.ordersByStatus().getOrDefault("DELIVERED", 0L) : 0L;
@@ -322,52 +330,52 @@ public class ExportController {
         // Sheet 1: Executive KPI Summary
         List<String> summaryHeaders = List.of("Metric Category", "Key Indicator", "Value / Count");
         List<List<Object>> summaryRows = List.of(
-                List.of("Commercial Sales", "Total Realized Revenue (ETB)", sales != null ? sales.totalRevenueEtb() : BigDecimal.ZERO),
-                List.of("Commercial Sales", "Average Order Value (ETB)", sales != null ? sales.averageOrderValueEtb() : BigDecimal.ZERO),
-                List.of("Commercial Sales", "Total Orders Processed", sales != null ? sales.totalOrders() : 0L),
-                List.of("Commercial Sales", "Completed & Delivered Orders", completed),
-                List.of("Commercial Sales", "Pending Fulfillment Orders", pending),
-                List.of("Commercial Sales", "Cancelled / Rejected Orders", cancelled),
-                List.of("Commercial Sales", "Delivery Orders", sales != null ? sales.deliveryOrdersCount() : 0L),
-                List.of("Commercial Sales", "Branch Collection Orders", sales != null ? sales.collectionOrdersCount() : 0L),
-                List.of("Inventory Valuation", "Total Inventory Valuation (ETB)", val != null ? val.totalValuationEtb() : BigDecimal.ZERO),
-                List.of("Inventory Valuation", "Total Catalog Products", val != null ? val.productCount() : (stock != null ? stock.totalProducts() : 0)),
-                List.of("Branch Inventory", "Total Physical Units On Hand", stock != null ? stock.totalUnitsOnHand() : BigDecimal.ZERO),
-                List.of("Branch Inventory", "Operating Branches Count", stock != null && stock.branchSummaries() != null ? stock.branchSummaries().size() : 0),
-                List.of("Logistics & Transfers", "Total Transfer Shipments", xfer != null ? xfer.totalTransfers() : 0L),
-                List.of("Logistics & Transfers", "In-Transit Shipments", xfer != null ? xfer.inTransitCount() : 0L),
-                List.of("Logistics & Transfers", "Safely Received Shipments", xfer != null ? xfer.receivedCount() : 0L),
-                List.of("Logistics & Transfers", "Discrepancy Shipments", xfer != null ? xfer.discrepancyCount() : 0L)
+                row("Commercial Sales", "Total Realized Revenue (ETB)", sales != null ? sales.totalRevenueEtb() : BigDecimal.ZERO),
+                row("Commercial Sales", "Average Order Value (ETB)", sales != null ? sales.averageOrderValueEtb() : BigDecimal.ZERO),
+                row("Commercial Sales", "Total Orders Processed", sales != null ? sales.totalOrders() : 0L),
+                row("Commercial Sales", "Completed & Delivered Orders", completed),
+                row("Commercial Sales", "Pending Fulfillment Orders", pending),
+                row("Commercial Sales", "Cancelled / Rejected Orders", cancelled),
+                row("Commercial Sales", "Delivery Orders", sales != null ? sales.deliveryOrdersCount() : 0L),
+                row("Commercial Sales", "Branch Collection Orders", sales != null ? sales.collectionOrdersCount() : 0L),
+                row("Inventory Valuation", "Total Inventory Valuation (ETB)", val != null ? val.totalValuationEtb() : BigDecimal.ZERO),
+                row("Inventory Valuation", "Total Catalog Products", val != null ? val.productCount() : (stock != null ? stock.totalProducts() : 0)),
+                row("Branch Inventory", "Total Physical Units On Hand", stock != null ? stock.totalUnitsOnHand() : BigDecimal.ZERO),
+                row("Branch Inventory", "Operating Branches Count", stock != null && stock.branchSummaries() != null ? stock.branchSummaries().size() : 0),
+                row("Logistics & Transfers", "Total Transfer Shipments", xfer != null ? xfer.totalTransfers() : 0L),
+                row("Logistics & Transfers", "In-Transit Shipments", xfer != null ? xfer.inTransitCount() : 0L),
+                row("Logistics & Transfers", "Safely Received Shipments", xfer != null ? xfer.receivedCount() : 0L),
+                row("Logistics & Transfers", "Discrepancy Shipments", xfer != null ? xfer.discrepancyCount() : 0L)
         );
-        sheets.add(new ExcelExportService.SheetData("Executive Summary", summaryHeaders, summaryRows));
+        sheets.add(new SheetData("Executive Summary", summaryHeaders, summaryRows));
 
         // Sheet 2: Stock Valuation (WAC)
         if (val != null && val.productValuations() != null && !val.productValuations().isEmpty()) {
             List<String> valHeaders = List.of("SKU", "Product Name", "Category", "Warehouse", "Physical Units On Hand", "Unit Cost (WAC ETB)", "Total Valuation (ETB)");
-            List<List<Object>> valRows = val.productValuations().stream().map(item -> List.<Object>of(
-                    item.sku() != null ? item.sku() : "",
-                    item.productName() != null ? item.productName() : "",
+            List<List<Object>> valRows = val.productValuations().stream().map(item -> row(
+                    item.sku(),
+                    item.productName(),
                     item.categoryName() != null ? item.categoryName() : "General",
-                    item.warehouseName() != null ? item.warehouseName() : "",
-                    item.onHandQuantity() != null ? item.onHandQuantity() : BigDecimal.ZERO,
-                    item.weightedAverageCost() != null ? item.weightedAverageCost() : BigDecimal.ZERO,
-                    item.totalValuation() != null ? item.totalValuation() : BigDecimal.ZERO
+                    item.warehouseName(),
+                    item.onHandQuantity(),
+                    item.weightedAverageCost(),
+                    item.totalValuation()
             )).toList();
-            sheets.add(new ExcelExportService.SheetData("Stock Valuation (WAC)", valHeaders, valRows));
+            sheets.add(new SheetData("Stock Valuation (WAC)", valHeaders, valRows));
         }
 
         // Sheet 3: Branch Stock Breakdown
         if (stock != null && stock.branchSummaries() != null && !stock.branchSummaries().isEmpty()) {
             List<String> branchHeaders = List.of("Branch Name", "Branch Code", "Warehouse Count", "Total On Hand Units", "Total Reserved Units", "Total Available Units");
-            List<List<Object>> branchRows = stock.branchSummaries().stream().map(b -> List.<Object>of(
-                    b.branchName() != null ? b.branchName() : "",
-                    b.branchCode() != null ? b.branchCode() : "",
+            List<List<Object>> branchRows = stock.branchSummaries().stream().map(b -> row(
+                    b.branchName(),
+                    b.branchCode(),
                     b.warehouseCount(),
-                    b.totalOnHand() != null ? b.totalOnHand() : BigDecimal.ZERO,
-                    b.totalReserved() != null ? b.totalReserved() : BigDecimal.ZERO,
-                    b.totalAvailable() != null ? b.totalAvailable() : BigDecimal.ZERO
+                    b.totalOnHand(),
+                    b.totalReserved(),
+                    b.totalAvailable()
             )).toList();
-            sheets.add(new ExcelExportService.SheetData("Branch Stock Summary", branchHeaders, branchRows));
+            sheets.add(new SheetData("Branch Stock Summary", branchHeaders, branchRows));
         }
 
         byte[] bytes = excelExportService.exportMultiSheetExcel(sheets);
