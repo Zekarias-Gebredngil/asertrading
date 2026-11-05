@@ -8,6 +8,7 @@ import com.aser.asertrading.common.exception.InsufficientStockException;
 import com.aser.asertrading.common.exception.ResourceNotFoundException;
 import com.aser.asertrading.identity.domain.Role;
 import com.aser.asertrading.identity.repository.UserRepository;
+import com.aser.asertrading.identity.service.SecurityBranchService;
 import com.aser.asertrading.inventory.domain.ReferenceType;
 import com.aser.asertrading.inventory.domain.StockBalance;
 import com.aser.asertrading.inventory.domain.StockMovement;
@@ -51,6 +52,7 @@ public class TransferWorkflowService {
     private final WeightedAverageCostService costService;
     private final AuditService auditService;
     private final UserRepository userRepository;
+    private final SecurityBranchService securityBranchService;
 
     @Transactional
     public StockTransferDto createTransfer(CreateTransferRequest request, String actor) {
@@ -63,6 +65,9 @@ public class TransferWorkflowService {
 
         Warehouse destWh = warehouseRepository.findById(request.destinationWarehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Destination warehouse not found with id: " + request.destinationWarehouseId()));
+
+        // Security assertion: caller must belong to source branch (or possess global multi-branch access)
+        securityBranchService.validateWarehouseAccess(sourceWh.getId());
 
         String transferNumber = "TRF-" + System.currentTimeMillis() % 10000000;
 
@@ -399,26 +404,47 @@ public class TransferWorkflowService {
 
     @Transactional(readOnly = true)
     public Page<StockTransferDto> getTransfers(TransferStatus status, Pageable pageable) {
-        Page<StockTransfer> transfers = status != null
-                ? transferRepository.findByStatus(status, pageable)
-                : transferRepository.findAll(pageable);
+        Page<StockTransfer> transfers;
+        if (securityBranchService.hasGlobalBranchAccess()) {
+            transfers = status != null
+                    ? transferRepository.findByStatus(status, pageable)
+                    : transferRepository.findAll(pageable);
+        } else {
+            Long callerBranchId = securityBranchService.getCallerBranchId();
+            if (callerBranchId == null) {
+                transfers = Page.empty(pageable);
+            } else {
+                transfers = transferRepository.findByBranchAndOptionalStatus(callerBranchId, status, pageable);
+            }
+        }
 
         return transfers.map(this::mapToDto);
     }
 
     @Transactional(readOnly = true)
     public StockTransferDto getTransferById(Long id) {
-        return mapToDto(getTransferEntity(id));
+        StockTransfer transfer = getTransferEntity(id);
+        if (!securityBranchService.canAccessTransfer(transfer.getSourceWarehouseId(), transfer.getDestinationWarehouseId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied: You are not authorized to view transfers outside your assigned branch.");
+        }
+        return mapToDto(transfer);
     }
 
     @Transactional(readOnly = true)
     public List<TransferEventDto> getTransferEvents(Long transferId) {
         StockTransfer transfer = getTransferEntity(transferId);
+        if (!securityBranchService.canAccessTransfer(transfer.getSourceWarehouseId(), transfer.getDestinationWarehouseId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied: You are not authorized to view transfer events for another branch.");
+        }
         return transfer.getEvents().stream().map(TransferEventDto::fromEntity).toList();
     }
 
     @Transactional(readOnly = true)
     public List<TransferDiscrepancyDto> getDiscrepancies(Long transferId) {
+        StockTransfer transfer = getTransferEntity(transferId);
+        if (!securityBranchService.canAccessTransfer(transfer.getSourceWarehouseId(), transfer.getDestinationWarehouseId())) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied: You are not authorized to view transfer discrepancies for another branch.");
+        }
         List<TransferDiscrepancy> list = discrepancyRepository.findByTransferId(transferId);
         Map<Long, Product> productMap = productRepository.findAllById(
                 list.stream().map(TransferDiscrepancy::getProductId).toList()
@@ -439,6 +465,11 @@ public class TransferWorkflowService {
         Warehouse sourceWh = warehouseRepository.findById(transfer.getSourceWarehouseId()).orElse(null);
         Warehouse destWh = warehouseRepository.findById(transfer.getDestinationWarehouseId()).orElse(null);
 
+        Long sourceBrId = (sourceWh != null && sourceWh.getBranch() != null) ? sourceWh.getBranch().getId() : null;
+        String sourceBrName = (sourceWh != null && sourceWh.getBranch() != null) ? sourceWh.getBranch().getName() : "Unknown";
+        Long destBrId = (destWh != null && destWh.getBranch() != null) ? destWh.getBranch().getId() : null;
+        String destBrName = (destWh != null && destWh.getBranch() != null) ? destWh.getBranch().getName() : "Unknown";
+
         Map<Long, Product> productMap = productRepository.findAllById(
                 transfer.getItems().stream().map(StockTransferItem::getProductId).toList()
         ).stream().collect(Collectors.toMap(Product::getId, p -> p));
@@ -455,7 +486,11 @@ public class TransferWorkflowService {
         return StockTransferDto.of(
                 transfer,
                 sourceWh != null ? sourceWh.getName() : "UNKNOWN",
+                sourceBrId,
+                sourceBrName,
                 destWh != null ? destWh.getName() : "UNKNOWN",
+                destBrId,
+                destBrName,
                 itemDtos,
                 eventDtos
         );

@@ -11,8 +11,12 @@ public record StockTransferDto(
         String transferNumber,
         Long sourceWarehouseId,
         String sourceWarehouseName,
+        Long sourceBranchId,
+        String sourceBranchName,
         Long destinationWarehouseId,
         String destinationWarehouseName,
+        Long destinationBranchId,
+        String destinationBranchName,
         TransferStatus status,
         String requestedBy,
         String approvedBy,
@@ -25,15 +29,21 @@ public record StockTransferDto(
         Instant createdAt,
         Instant updatedAt
 ) {
-    public static StockTransferDto of(StockTransfer t, String sourceWhName, String destWhName,
+    public static StockTransferDto of(StockTransfer t,
+                                      String sourceWhName, Long sourceBrId, String sourceBrName,
+                                      String destWhName, Long destBrId, String destBrName,
                                       List<TransferItemDto> items, List<TransferEventDto> events) {
         return new StockTransferDto(
                 t.getId(),
                 t.getTransferNumber(),
                 t.getSourceWarehouseId(),
                 sourceWhName,
+                sourceBrId,
+                sourceBrName,
                 t.getDestinationWarehouseId(),
                 destWhName,
+                destBrId,
+                destBrName,
                 t.getStatus(),
                 t.getRequestedBy(),
                 t.getApprovedBy(),
@@ -48,4 +58,3 @@ public record StockTransferDto(
         );
     }
 }
-

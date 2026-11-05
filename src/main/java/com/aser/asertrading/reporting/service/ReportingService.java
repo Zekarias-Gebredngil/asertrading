@@ -40,9 +40,24 @@ public class ReportingService {
 
     @Transactional(readOnly = true)
     public StockSummaryReportDto getStockSummary() {
-        List<StockBalance> balances = stockBalanceRepository.findAll();
-        List<Branch> branches = branchRepository.findAll();
-        List<Warehouse> warehouses = warehouseRepository.findAll();
+        return getStockSummary(null);
+    }
+
+    @Transactional(readOnly = true)
+    public StockSummaryReportDto getStockSummary(Long branchId) {
+        List<Branch> branches = branchId != null
+                ? branchRepository.findById(branchId).map(List::of).orElse(List.of())
+                : branchRepository.findAll();
+
+        List<Warehouse> warehouses = branchId != null
+                ? warehouseRepository.findByBranchId(branchId)
+                : warehouseRepository.findAll();
+
+        Set<Long> allowedWarehouseIds = warehouses.stream().map(Warehouse::getId).collect(Collectors.toSet());
+
+        List<StockBalance> balances = stockBalanceRepository.findAll().stream()
+                .filter(b -> allowedWarehouseIds.contains(b.getWarehouseId()))
+                .toList();
 
         Map<Long, List<Warehouse>> branchWarehouses = warehouses.stream()
                 .collect(Collectors.groupingBy(w -> w.getBranch().getId()));
@@ -99,10 +114,23 @@ public class ReportingService {
 
     @Transactional(readOnly = true)
     public StockValuationReportDto getStockValuation() {
-        List<StockBalance> balances = stockBalanceRepository.findAll();
+        return getStockValuation(null);
+    }
+
+    @Transactional(readOnly = true)
+    public StockValuationReportDto getStockValuation(Long branchId) {
+        List<Warehouse> warehouses = branchId != null
+                ? warehouseRepository.findByBranchId(branchId)
+                : warehouseRepository.findAll();
+        Set<Long> allowedWarehouseIds = warehouses.stream().map(Warehouse::getId).collect(Collectors.toSet());
+
+        List<StockBalance> balances = stockBalanceRepository.findAll().stream()
+                .filter(b -> allowedWarehouseIds.contains(b.getWarehouseId()))
+                .toList();
+
         Map<Long, Product> productMap = productRepository.findAll().stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
-        Map<Long, Warehouse> warehouseMap = warehouseRepository.findAll().stream()
+        Map<Long, Warehouse> warehouseMap = warehouses.stream()
                 .collect(Collectors.toMap(Warehouse::getId, w -> w));
 
         BigDecimal totalValuation = BigDecimal.ZERO;
@@ -137,26 +165,42 @@ public class ReportingService {
 
     @Transactional(readOnly = true)
     public SalesReportDto getSalesReport() {
-        BigDecimal totalRevenue = orderRepository.sumTotalAmountExcludingStatus(OrderStatus.CANCELLED);
-        long validOrderCount = orderRepository.countExcludingStatus(OrderStatus.CANCELLED);
-        long totalOrders = orderRepository.count();
+        return getSalesReport(null);
+    }
 
+    @Transactional(readOnly = true)
+    public SalesReportDto getSalesReport(Long branchId) {
+        List<Order> orders = orderRepository.findAll().stream()
+                .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
+                .filter(o -> {
+                    if (branchId == null) return true;
+                    if (o.getCollectionBranchId() != null && o.getCollectionBranchId().equals(branchId)) return true;
+                    if (o.getFulfillmentWarehouseId() != null) {
+                        Warehouse w = warehouseRepository.findById(o.getFulfillmentWarehouseId()).orElse(null);
+                        return w != null && w.getBranch() != null && branchId.equals(w.getBranch().getId());
+                    }
+                    return false;
+                })
+                .toList();
+
+        BigDecimal totalRevenue = orders.stream()
+                .map(Order::getTotalAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        int validOrderCount = orders.size();
         BigDecimal avgOrderValue = validOrderCount > 0
                 ? totalRevenue.divide(BigDecimal.valueOf(validOrderCount), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        Map<String, Long> statusCounts = new HashMap<>();
-        for (Object[] row : orderRepository.countOrdersByStatusGroup()) {
-            if (row[0] != null && row[1] != null) {
-                statusCounts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
-            }
-        }
+        Map<String, Long> statusCounts = orders.stream()
+                .collect(Collectors.groupingBy(o -> o.getStatus().name(), Collectors.counting()));
 
-        long deliveryCount = orderRepository.countByDeliveryType(DeliveryType.DELIVERY);
-        long collectionCount = orderRepository.countByDeliveryType(DeliveryType.COLLECTION);
+        long deliveryCount = orders.stream().filter(o -> o.getDeliveryType() == DeliveryType.DELIVERY).count();
+        long collectionCount = orders.stream().filter(o -> o.getDeliveryType() == DeliveryType.COLLECTION).count();
 
         return new SalesReportDto(
-                (int) totalOrders,
+                validOrderCount,
                 totalRevenue,
                 avgOrderValue,
                 statusCounts,
@@ -167,20 +211,32 @@ public class ReportingService {
 
     @Transactional(readOnly = true)
     public TransferReportDto getTransferReport() {
-        long totalTransfers = transferRepository.count();
-        long inTransit = transferRepository.countByStatus(TransferStatus.IN_TRANSIT);
-        long received = transferRepository.countByStatus(TransferStatus.RECEIVED);
-        long discrepancies = discrepancyRepository.count();
+        return getTransferReport(null);
+    }
 
-        Map<String, Long> statusCounts = new HashMap<>();
-        for (Object[] row : transferRepository.countTransfersByStatusGroup()) {
-            if (row[0] != null && row[1] != null) {
-                statusCounts.put(((TransferStatus) row[0]).name(), (Long) row[1]);
-            }
+    @Transactional(readOnly = true)
+    public TransferReportDto getTransferReport(Long branchId) {
+        List<StockTransfer> transfers;
+        if (branchId != null) {
+            Set<Long> branchWarehouseIds = warehouseRepository.findByBranchId(branchId).stream()
+                    .map(Warehouse::getId)
+                    .collect(Collectors.toSet());
+            transfers = transferRepository.findAll().stream()
+                    .filter(t -> branchWarehouseIds.contains(t.getSourceWarehouseId()) || branchWarehouseIds.contains(t.getDestinationWarehouseId()))
+                    .toList();
+        } else {
+            transfers = transferRepository.findAll();
         }
 
+        long inTransit = transfers.stream().filter(t -> t.getStatus() == TransferStatus.IN_TRANSIT).count();
+        long received = transfers.stream().filter(t -> t.getStatus() == TransferStatus.RECEIVED).count();
+        long discrepancies = discrepancyRepository.count();
+
+        Map<String, Long> statusCounts = transfers.stream()
+                .collect(Collectors.groupingBy(t -> t.getStatus().name(), Collectors.counting()));
+
         return new TransferReportDto(
-                (int) totalTransfers,
+                transfers.size(),
                 inTransit,
                 received,
                 discrepancies,
@@ -188,4 +244,3 @@ public class ReportingService {
         );
     }
 }
-

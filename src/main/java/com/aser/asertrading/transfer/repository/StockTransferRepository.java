@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -22,5 +23,25 @@ public interface StockTransferRepository extends JpaRepository<StockTransfer, Lo
     List<Object[]> countTransfersByStatusGroup();
 
     long countByStatus(TransferStatus status);
-}
 
+    @Query("SELECT t FROM StockTransfer t WHERE (:status IS NULL OR t.status = :status) AND " +
+           "(t.sourceWarehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId) OR " +
+           " t.destinationWarehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId))")
+    Page<StockTransfer> findByBranchAndOptionalStatus(
+            @Param("branchId") Long branchId,
+            @Param("status") TransferStatus status,
+            Pageable pageable);
+
+    @Query("SELECT COUNT(t) FROM StockTransfer t WHERE (:status IS NULL OR t.status = :status) AND " +
+           "(t.sourceWarehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId) OR " +
+           " t.destinationWarehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId))")
+    long countByBranchAndOptionalStatus(
+            @Param("branchId") Long branchId,
+            @Param("status") TransferStatus status);
+
+    @Query("SELECT t.status, COUNT(t) FROM StockTransfer t WHERE " +
+           "(t.sourceWarehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId) OR " +
+           " t.destinationWarehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId)) " +
+           "GROUP BY t.status")
+    List<Object[]> countTransfersByStatusGroupAndBranch(@Param("branchId") Long branchId);
+}

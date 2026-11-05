@@ -31,6 +31,12 @@ public interface StockBalanceRepository extends JpaRepository<StockBalance, Long
 
     Page<StockBalance> findByWarehouseId(Long warehouseId, Pageable pageable);
 
+    @Query("SELECT b FROM StockBalance b WHERE b.warehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId)")
+    Page<StockBalance> findByBranchId(@Param("branchId") Long branchId, Pageable pageable);
+
+    @Query("SELECT b FROM StockBalance b WHERE b.warehouseId IN (SELECT w.id FROM Warehouse w WHERE w.branch.id = :branchId)")
+    List<StockBalance> findByBranchId(@Param("branchId") Long branchId);
+
     @Query("SELECT COALESCE(SUM(b.onHandQuantity), 0) FROM StockBalance b WHERE b.productId = :productId")
     BigDecimal getTotalOnHandByProduct(@Param("productId") Long productId);
 

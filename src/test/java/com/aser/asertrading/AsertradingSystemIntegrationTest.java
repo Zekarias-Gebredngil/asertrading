@@ -119,14 +119,23 @@ class AsertradingSystemIntegrationTest {
         Product product = productRepository.findBySku("GAR-HTV-WHT-01").orElseThrow();
         Warehouse warehouse = warehouseRepository.findByCode("HQ-WH1").orElseThrow();
 
-        // Current seeded stock: 250m @ 180 ETB
-        // New receipt: 50m @ 240 ETB
-        // Expected new avg cost: (250*180 + 50*240) / 300 = (45000 + 12000) / 300 = 57000 / 300 = 190.0000 ETB
+        // Check current balance before test receipt
+        com.aser.asertrading.inventory.domain.StockBalance currentBalance =
+                stockBalanceRepository.findByProductIdAndWarehouseId(product.getId(), warehouse.getId()).orElse(null);
+        BigDecimal initialOnHand = currentBalance != null ? currentBalance.getOnHandQuantity() : BigDecimal.ZERO;
+        BigDecimal initialCost = currentBalance != null ? currentBalance.getWeightedAverageCost() : BigDecimal.valueOf(180.00);
+
+        BigDecimal receiptQty = BigDecimal.valueOf(50);
+        BigDecimal receiptCost = BigDecimal.valueOf(240.00);
+        BigDecimal expectedOnHand = initialOnHand.add(receiptQty);
+        BigDecimal expectedAvgCost = (initialOnHand.multiply(initialCost).add(receiptQty.multiply(receiptCost)))
+                .divide(expectedOnHand, 4, java.math.RoundingMode.HALF_UP);
+
         StockReceiptRequest receiptRequest = new StockReceiptRequest(
                 warehouse.getId(),
                 product.getId(),
-                BigDecimal.valueOf(50),
-                BigDecimal.valueOf(240.00),
+                receiptQty,
+                receiptCost,
                 ReferenceType.MANUAL,
                 "TEST-RECEIPT-01",
                 "Integration test receipt"
@@ -134,8 +143,8 @@ class AsertradingSystemIntegrationTest {
 
         StockBalanceDto updatedBalance = inventoryService.recordReceipt(receiptRequest, "admin");
 
-        assertThat(updatedBalance.onHandQuantity()).isEqualByComparingTo("300");
-        assertThat(updatedBalance.weightedAverageCost()).isEqualByComparingTo("190.0000");
+        assertThat(updatedBalance.onHandQuantity()).isEqualByComparingTo(expectedOnHand.toString());
+        assertThat(updatedBalance.weightedAverageCost()).isEqualByComparingTo(expectedAvgCost.toString());
     }
 
     @Test

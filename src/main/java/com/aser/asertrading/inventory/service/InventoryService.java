@@ -6,6 +6,7 @@ import com.aser.asertrading.common.audit.AuditService;
 import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.common.exception.InsufficientStockException;
 import com.aser.asertrading.common.exception.ResourceNotFoundException;
+import com.aser.asertrading.identity.service.SecurityBranchService;
 import com.aser.asertrading.inventory.domain.*;
 import com.aser.asertrading.inventory.repository.*;
 import com.aser.asertrading.inventory.web.dto.*;
@@ -36,6 +37,7 @@ public class InventoryService {
     private final WarehouseRepository warehouseRepository;
     private final WeightedAverageCostService costService;
     private final AuditService auditService;
+    private final SecurityBranchService securityBranchService;
 
     @Transactional
     public StockBalanceDto recordReceipt(StockReceiptRequest request, String actor) {
@@ -44,6 +46,8 @@ public class InventoryService {
 
         Warehouse warehouse = warehouseRepository.findById(request.warehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + request.warehouseId()));
+
+        securityBranchService.validateWarehouseAccess(warehouse.getId());
 
         StockBalance balance = stockBalanceRepository.findByProductIdAndWarehouseId(product.getId(), warehouse.getId())
                 .orElseGet(() -> StockBalance.builder()
@@ -102,6 +106,8 @@ public class InventoryService {
         Warehouse warehouse = warehouseRepository.findById(request.warehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + request.warehouseId()));
 
+        securityBranchService.validateWarehouseAccess(warehouse.getId());
+
         StockBalance balance = stockBalanceRepository.findByProductIdAndWarehouseId(product.getId(), warehouse.getId())
                 .orElseThrow(() -> new InsufficientStockException("No stock balance found for product " + product.getSku() + " in warehouse " + warehouse.getName()));
 
@@ -152,6 +158,8 @@ public class InventoryService {
 
         Warehouse warehouse = warehouseRepository.findById(request.warehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + request.warehouseId()));
+
+        securityBranchService.validateWarehouseAccess(warehouse.getId());
 
         StockBalance balance = stockBalanceRepository.findByProductIdAndWarehouseId(product.getId(), warehouse.getId())
                 .orElseGet(() -> StockBalance.builder()
@@ -212,9 +220,22 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public Page<StockBalanceDto> getBalances(Long warehouseId, Pageable pageable) {
-        Page<StockBalance> balances = warehouseId != null
-                ? stockBalanceRepository.findByWarehouseId(warehouseId, pageable)
-                : stockBalanceRepository.findAll(pageable);
+        Page<StockBalance> balances;
+        if (!securityBranchService.hasGlobalBranchAccess()) {
+            Long callerBranchId = securityBranchService.getCallerBranchId();
+            if (warehouseId != null) {
+                securityBranchService.validateWarehouseAccess(warehouseId);
+                balances = stockBalanceRepository.findByWarehouseId(warehouseId, pageable);
+            } else if (callerBranchId != null) {
+                balances = stockBalanceRepository.findByBranchId(callerBranchId, pageable);
+            } else {
+                balances = Page.empty(pageable);
+            }
+        } else {
+            balances = warehouseId != null
+                    ? stockBalanceRepository.findByWarehouseId(warehouseId, pageable)
+                    : stockBalanceRepository.findAll(pageable);
+        }
 
         Map<Long, Product> productMap = productRepository.findAllById(
                 balances.getContent().stream().map(StockBalance::getProductId).toList()
@@ -242,14 +263,26 @@ public class InventoryService {
     @Transactional(readOnly = true)
     public Page<StockMovementDto> getMovements(Long productId, Long warehouseId, StockMovementType type, Pageable pageable) {
         Page<StockMovement> movements;
-        if (productId != null) {
-            movements = stockMovementRepository.findByProductId(productId, pageable);
-        } else if (warehouseId != null) {
-            movements = stockMovementRepository.findByWarehouseId(warehouseId, pageable);
-        } else if (type != null) {
-            movements = stockMovementRepository.findByMovementType(type, pageable);
+        if (!securityBranchService.hasGlobalBranchAccess()) {
+            Long callerBranchId = securityBranchService.getCallerBranchId();
+            if (warehouseId != null) {
+                securityBranchService.validateWarehouseAccess(warehouseId);
+            }
+            if (callerBranchId != null) {
+                movements = stockMovementRepository.findWithFiltersAndBranch(productId, warehouseId, type, callerBranchId, pageable);
+            } else {
+                movements = Page.empty(pageable);
+            }
         } else {
-            movements = stockMovementRepository.findAll(pageable);
+            if (productId != null) {
+                movements = stockMovementRepository.findByProductId(productId, pageable);
+            } else if (warehouseId != null) {
+                movements = stockMovementRepository.findByWarehouseId(warehouseId, pageable);
+            } else if (type != null) {
+                movements = stockMovementRepository.findByMovementType(type, pageable);
+            } else {
+                movements = stockMovementRepository.findAll(pageable);
+            }
         }
 
         Map<Long, Product> productMap = productRepository.findAllById(
@@ -274,9 +307,22 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public List<LowStockAlertDto> getLowStockAlerts(Long warehouseId) {
-        List<StockBalance> balances = warehouseId != null
-                ? stockBalanceRepository.findByWarehouseId(warehouseId)
-                : stockBalanceRepository.findAll();
+        List<StockBalance> balances;
+        if (!securityBranchService.hasGlobalBranchAccess()) {
+            Long callerBranchId = securityBranchService.getCallerBranchId();
+            if (warehouseId != null) {
+                securityBranchService.validateWarehouseAccess(warehouseId);
+                balances = stockBalanceRepository.findByWarehouseId(warehouseId);
+            } else if (callerBranchId != null) {
+                balances = stockBalanceRepository.findByBranchId(callerBranchId);
+            } else {
+                balances = List.of();
+            }
+        } else {
+            balances = warehouseId != null
+                    ? stockBalanceRepository.findByWarehouseId(warehouseId)
+                    : stockBalanceRepository.findAll();
+        }
 
         Map<Long, Product> productMap = productRepository.findAll().stream()
                 .collect(Collectors.toMap(Product::getId, p -> p));
