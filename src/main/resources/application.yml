@@ -51,4 +51,16 @@ app:
   currency: ETB
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,http://localhost:3000,http://127.0.0.1:4200}
+  storage:
+    s3:
+      enabled: ${AWS_S3_ENABLED:false}
+      bucket: ${AWS_S3_BUCKET:}
+      region: ${AWS_REGION:us-east-1}
+      access-key: ${AWS_ACCESS_KEY_ID:}
+      secret-key: ${AWS_SECRET_ACCESS_KEY:}
+      endpoint: ${AWS_S3_ENDPOINT:}
+      public-url-prefix: ${AWS_S3_PUBLIC_URL_PREFIX:}
+    upload-dir: ${APP_UPLOAD_DIR:uploads}
+  media:
+    base-url: ${APP_MEDIA_BASE_URL:http://localhost:8085}
 
