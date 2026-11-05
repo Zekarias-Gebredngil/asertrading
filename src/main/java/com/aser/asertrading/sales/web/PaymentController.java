@@ -1,6 +1,7 @@
 package com.aser.asertrading.sales.web;
 
 import com.aser.asertrading.common.dto.ApiResponse;
+import com.aser.asertrading.identity.service.UserPrincipal;
 import com.aser.asertrading.sales.service.PaymentService;
 import com.aser.asertrading.sales.web.dto.ConfirmPaymentRequest;
 import com.aser.asertrading.sales.web.dto.InitiatePaymentRequest;
@@ -35,14 +36,16 @@ public class PaymentController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Get payment status by payment ID")
-    public ApiResponse<PaymentDto> getPaymentById(@PathVariable Long id) {
-        return ApiResponse.success(paymentService.getPaymentById(id));
+    public ApiResponse<PaymentDto> getPaymentById(@PathVariable Long id, Authentication auth) {
+        UserPrincipal principal = (auth != null && auth.getPrincipal() instanceof UserPrincipal p) ? p : null;
+        return ApiResponse.success(paymentService.getPaymentById(id, principal));
     }
 
     @GetMapping("/order/{orderId}")
     @Operation(summary = "Get payments for an order")
-    public ApiResponse<List<PaymentDto>> getPaymentsByOrder(@PathVariable Long orderId) {
-        return ApiResponse.success(paymentService.getPaymentsByOrder(orderId));
+    public ApiResponse<List<PaymentDto>> getPaymentsByOrder(@PathVariable Long orderId, Authentication auth) {
+        UserPrincipal principal = (auth != null && auth.getPrincipal() instanceof UserPrincipal p) ? p : null;
+        return ApiResponse.success(paymentService.getPaymentsByOrder(orderId, principal));
     }
 
     @PostMapping("/{id}/confirm-manual")

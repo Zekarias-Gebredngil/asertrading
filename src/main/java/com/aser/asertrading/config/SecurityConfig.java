@@ -46,11 +46,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/v1/auth/**",
+                                "/api/v1/auth/login",
+                                "/api/v1/auth/register",
                                 "/api/v1/public/**",
                                 "/api/v1/cart/**",
                                 "/api/v1/checkout/**",
-                                "/api/v1/media/**",
                                 "/uploads/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",

@@ -137,29 +137,26 @@ public class ReportingService {
 
     @Transactional(readOnly = true)
     public SalesReportDto getSalesReport() {
-        List<Order> orders = orderRepository.findAll();
-
-        BigDecimal totalRevenue = orders.stream()
-                .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
-                .map(Order::getTotalAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        long validOrderCount = orders.stream()
-                .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
-                .count();
+        BigDecimal totalRevenue = orderRepository.sumTotalAmountExcludingStatus(OrderStatus.CANCELLED);
+        long validOrderCount = orderRepository.countExcludingStatus(OrderStatus.CANCELLED);
+        long totalOrders = orderRepository.count();
 
         BigDecimal avgOrderValue = validOrderCount > 0
                 ? totalRevenue.divide(BigDecimal.valueOf(validOrderCount), 2, RoundingMode.HALF_UP)
                 : BigDecimal.ZERO;
 
-        Map<String, Long> statusCounts = orders.stream()
-                .collect(Collectors.groupingBy(o -> o.getStatus().name(), Collectors.counting()));
+        Map<String, Long> statusCounts = new HashMap<>();
+        for (Object[] row : orderRepository.countOrdersByStatusGroup()) {
+            if (row[0] != null && row[1] != null) {
+                statusCounts.put(((OrderStatus) row[0]).name(), (Long) row[1]);
+            }
+        }
 
-        long deliveryCount = orders.stream().filter(o -> o.getDeliveryType() == DeliveryType.DELIVERY).count();
-        long collectionCount = orders.stream().filter(o -> o.getDeliveryType() == DeliveryType.COLLECTION).count();
+        long deliveryCount = orderRepository.countByDeliveryType(DeliveryType.DELIVERY);
+        long collectionCount = orderRepository.countByDeliveryType(DeliveryType.COLLECTION);
 
         return new SalesReportDto(
-                orders.size(),
+                (int) totalOrders,
                 totalRevenue,
                 avgOrderValue,
                 statusCounts,
@@ -170,17 +167,20 @@ public class ReportingService {
 
     @Transactional(readOnly = true)
     public TransferReportDto getTransferReport() {
-        List<StockTransfer> transfers = transferRepository.findAll();
-
-        Map<String, Long> statusCounts = transfers.stream()
-                .collect(Collectors.groupingBy(t -> t.getStatus().name(), Collectors.counting()));
-
-        long inTransit = transfers.stream().filter(t -> t.getStatus() == TransferStatus.IN_TRANSIT).count();
-        long received = transfers.stream().filter(t -> t.getStatus() == TransferStatus.RECEIVED).count();
+        long totalTransfers = transferRepository.count();
+        long inTransit = transferRepository.countByStatus(TransferStatus.IN_TRANSIT);
+        long received = transferRepository.countByStatus(TransferStatus.RECEIVED);
         long discrepancies = discrepancyRepository.count();
 
+        Map<String, Long> statusCounts = new HashMap<>();
+        for (Object[] row : transferRepository.countTransfersByStatusGroup()) {
+            if (row[0] != null && row[1] != null) {
+                statusCounts.put(((TransferStatus) row[0]).name(), (Long) row[1]);
+            }
+        }
+
         return new TransferReportDto(
-                transfers.size(),
+                (int) totalTransfers,
                 inTransit,
                 received,
                 discrepancies,

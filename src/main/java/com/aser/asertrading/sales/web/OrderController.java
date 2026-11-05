@@ -15,6 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -73,8 +74,23 @@ public class OrderController {
 
     @GetMapping("/orders/{id}")
     @Operation(summary = "Get order details by ID")
-    public ApiResponse<OrderDto> getOrderById(@PathVariable Long id) {
-        return ApiResponse.success(orderService.getOrderById(id));
+    public ApiResponse<OrderDto> getOrderById(@PathVariable Long id, Authentication authentication) {
+        OrderDto order = orderService.getOrderById(id);
+
+        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal principal) {
+            boolean isStaff = principal.getAuthorities().stream()
+                    .anyMatch(a -> !a.getAuthority().equals("ROLE_CUSTOMER"));
+
+            if (!isStaff) {
+                boolean isOwner = (order.customerId() != null && order.customerId().equals(principal.getId()))
+                        || (order.customerEmail() != null && order.customerEmail().equalsIgnoreCase(principal.getEmail()));
+                if (!isOwner) {
+                    throw new AccessDeniedException("Access denied: You do not have permission to view this order.");
+                }
+            }
+        }
+
+        return ApiResponse.success(order);
     }
 
     @GetMapping("/orders/number/{orderNumber}")

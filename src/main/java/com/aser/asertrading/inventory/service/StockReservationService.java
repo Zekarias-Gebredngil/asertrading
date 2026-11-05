@@ -29,7 +29,7 @@ public class StockReservationService {
 
     @Transactional
     public StockReservation reserveStock(Long orderId, Long warehouseId, Long productId, BigDecimal quantity, int expiryHours) {
-        StockBalance balance = stockBalanceRepository.findByProductIdAndWarehouseId(productId, warehouseId)
+        StockBalance balance = stockBalanceRepository.findByProductIdAndWarehouseIdForUpdate(productId, warehouseId)
                 .orElseThrow(() -> new InsufficientStockException("No stock balance found for product ID " + productId + " in warehouse " + warehouseId));
 
         if (balance.getAvailableQuantity().compareTo(quantity) < 0) {
@@ -80,7 +80,7 @@ public class StockReservationService {
     public void fulfillReservationForOrder(Long orderId, String actor) {
         List<StockReservation> reservations = reservationRepository.findByOrderIdAndStatus(orderId, ReservationStatus.ACTIVE);
         for (StockReservation res : reservations) {
-            StockBalance balance = stockBalanceRepository.findByProductIdAndWarehouseId(res.getProductId(), res.getWarehouseId())
+            StockBalance balance = stockBalanceRepository.findByProductIdAndWarehouseIdForUpdate(res.getProductId(), res.getWarehouseId())
                     .orElseThrow(() -> new ResourceNotFoundException("Stock balance not found for product " + res.getProductId()));
 
             // Decrement reserved and on-hand

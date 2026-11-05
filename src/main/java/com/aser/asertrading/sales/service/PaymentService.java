@@ -3,6 +3,7 @@ package com.aser.asertrading.sales.service;
 import com.aser.asertrading.common.audit.AuditService;
 import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.common.exception.ResourceNotFoundException;
+import com.aser.asertrading.identity.service.UserPrincipal;
 import com.aser.asertrading.sales.domain.Order;
 import com.aser.asertrading.sales.domain.OrderStatus;
 import com.aser.asertrading.sales.domain.Payment;
@@ -14,6 +15,7 @@ import com.aser.asertrading.sales.web.dto.InitiatePaymentRequest;
 import com.aser.asertrading.sales.web.dto.PaymentDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -90,21 +92,49 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public PaymentDto getPaymentById(Long id) {
+        return getPaymentById(id, null);
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentDto getPaymentById(Long id, UserPrincipal principal) {
         Payment payment = paymentRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment not found with id: " + id));
 
         Order order = orderRepository.findById(payment.getOrderId()).orElse(null);
+        if (order != null) {
+            validateOrderOwnershipOrStaff(order, principal);
+        }
         return PaymentDto.of(payment, order != null ? order.getOrderNumber() : "UNKNOWN");
     }
 
     @Transactional(readOnly = true)
     public List<PaymentDto> getPaymentsByOrder(Long orderId) {
+        return getPaymentsByOrder(orderId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentDto> getPaymentsByOrder(Long orderId, UserPrincipal principal) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + orderId));
+
+        validateOrderOwnershipOrStaff(order, principal);
 
         return paymentRepository.findByOrderId(orderId).stream()
                 .map(p -> PaymentDto.of(p, order.getOrderNumber()))
                 .toList();
+    }
+
+    private void validateOrderOwnershipOrStaff(Order order, UserPrincipal principal) {
+        if (principal == null) return;
+        boolean isStaff = principal.getAuthorities().stream()
+                .anyMatch(a -> !a.getAuthority().equals("ROLE_CUSTOMER"));
+        if (!isStaff) {
+            boolean isOwner = (order.getCustomerId() != null && order.getCustomerId().equals(principal.getId()))
+                    || (order.getCustomerEmail() != null && order.getCustomerEmail().equalsIgnoreCase(principal.getEmail()));
+            if (!isOwner) {
+                throw new AccessDeniedException("Access denied: You do not have permission to view payments for this order.");
+            }
+        }
     }
 }
 

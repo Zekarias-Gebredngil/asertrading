@@ -4,6 +4,7 @@ import com.aser.asertrading.catalog.domain.Product;
 import com.aser.asertrading.catalog.domain.ProductStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -22,6 +23,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     Page<Product> findByStatus(ProductStatus status, Pageable pageable);
     Page<Product> findByCategoryId(Long categoryId, Pageable pageable);
 
+    @EntityGraph(attributePaths = {"category", "baseUnit"})
     @Query("SELECT p FROM Product p WHERE p.isPublished = true AND p.status = 'ACTIVE' " +
            "AND (:categoryId IS NULL OR p.category.id = :categoryId) " +
            "AND (:quotationOnly IS NULL OR p.isQuotationOnly = :quotationOnly) " +
@@ -32,6 +34,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             @Param("searchPattern") String searchPattern,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"category", "baseUnit"})
     @Query("SELECT p FROM Product p WHERE " +
            "(:status IS NULL OR p.status = :status) " +
            "AND (:categoryId IS NULL OR p.category.id = :categoryId) " +

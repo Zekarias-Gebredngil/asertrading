@@ -137,10 +137,8 @@ public class AuthService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UnauthorizedException("User not found: " + username));
 
-        if (request.currentPassword() != null && !request.currentPassword().isBlank()) {
-            if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-                throw new BadRequestException("Current password does not match.");
-            }
+        if (request.currentPassword() == null || !passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            throw new BadRequestException("Current password does not match.");
         }
 
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));

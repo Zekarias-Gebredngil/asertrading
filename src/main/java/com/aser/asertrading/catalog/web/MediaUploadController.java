@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,15 +26,24 @@ public class MediaUploadController {
     private final S3StorageService storageService;
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "gif", "svg");
+    private static final Set<String> ALLOWED_MIME_TYPES = Set.of(
+            "image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"
+    );
+    private static final long MAX_FILE_SIZE = 10 * 1024 * 1024L; // 10 MB maximum upload limit
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload image and return persistent S3 or cloud URL")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'WEBSITE_MANAGER', 'SALES_OFFICER')")
     public ApiResponse<Map<String, String>> uploadImage(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "folder", defaultValue = "images") String folder) {
 
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("Uploaded file cannot be empty");
+        }
+
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw new BadRequestException("File size exceeds maximum allowed limit of 10MB");
         }
 
         String originalFilename = StringUtils.cleanPath(Objects.requireNonNullElse(file.getOriginalFilename(), "image.png"));
@@ -45,6 +55,11 @@ public class MediaUploadController {
 
         if (!ALLOWED_EXTENSIONS.contains(extension)) {
             throw new BadRequestException("Invalid file format. Allowed types: jpg, jpeg, png, webp, gif, svg");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || !ALLOWED_MIME_TYPES.contains(contentType.toLowerCase(Locale.ROOT))) {
+            throw new BadRequestException("Invalid content type. Only valid image files are permitted.");
         }
 
         String safeFolderName = folder.replaceAll("[^a-zA-Z0-9_-]", "");

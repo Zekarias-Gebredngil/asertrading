@@ -58,6 +58,11 @@ public class S3StorageService {
     private static final DateTimeFormatter AMZ_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'");
     private static final DateTimeFormatter DATE_STAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
+    // Shared thread-safe HttpClient singleton to prevent thread/connection pool leaks
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+
     public boolean isS3Configured() {
         return (s3Enabled || (s3Bucket != null && !s3Bucket.isBlank()))
                 && s3AccessKey != null && !s3AccessKey.isBlank()
@@ -93,7 +98,11 @@ public class S3StorageService {
                 Files.createDirectories(targetDir);
             }
 
-            Path destination = targetDir.resolve(fileName);
+            Path destination = targetDir.resolve(fileName).normalize();
+            if (!destination.startsWith(targetDir)) {
+                log.error("[S3StorageService] Directory traversal attempt detected: fileName='{}', targetDir='{}'", fileName, targetDir);
+                throw new SecurityException("Potential directory traversal detected: " + fileName);
+            }
             Files.write(destination, fileBytes);
 
             String relativeUrl = "/uploads/" + safeFolder + "/" + fileName;
@@ -159,10 +168,6 @@ public class S3StorageService {
                 + "SignedHeaders=" + signedHeaders + ", "
                 + "Signature=" + signature;
 
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(targetUrl))
                 .timeout(Duration.ofSeconds(30))
@@ -176,7 +181,7 @@ public class S3StorageService {
             requestBuilder.header("Content-Type", contentType);
         }
 
-        HttpResponse<String> response = client.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = this.httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
 
         int statusCode = response.statusCode();
         if (statusCode >= 200 && statusCode < 300) {

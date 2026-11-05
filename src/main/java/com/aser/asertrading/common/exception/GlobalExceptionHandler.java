@@ -111,10 +111,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGenericException(Exception ex) {
         log.error("Unhandled server exception: ", ex);
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected server error occurred: " + ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected internal error occurred. Please contact system support if the problem persists."
+        );
         problem.setTitle("Internal Server Error");
         problem.setType(URI.create("https://aser.et/errors/internal-error"));
-        problem.setProperty("exceptionType", ex.getClass().getName());
         problem.setProperty("timestamp", Instant.now());
         return problem;
     }

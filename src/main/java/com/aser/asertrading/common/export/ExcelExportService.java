@@ -1,7 +1,8 @@
 package com.aser.asertrading.common.export;
 
 import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
@@ -15,13 +16,15 @@ import java.util.Map;
 public class ExcelExportService {
 
     /**
-     * Builds a single-sheet Excel workbook as a byte array
+     * Builds a single-sheet Excel workbook as a byte array with streaming low-memory footprint
      */
     public byte[] exportToExcel(String sheetTitle, List<String> headers, List<List<Object>> rows) {
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet(sanitizeSheetName(sheetTitle));
+        try (SXSSFWorkbook workbook = new SXSSFWorkbook(100); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            SXSSFSheet sheet = workbook.createSheet(sanitizeSheetName(sheetTitle));
+            sheet.trackAllColumnsForAutoSizing();
             applyStylesAndPopulate(workbook, sheet, headers, rows);
             workbook.write(out);
+            workbook.dispose();
             return out.toByteArray();
         } catch (IOException e) {
             throw new RuntimeException("Failed to generate Excel export", e);
@@ -29,15 +32,17 @@ public class ExcelExportService {
     }
 
     /**
-     * Builds a multi-sheet Excel workbook as a byte array
+     * Builds a multi-sheet Excel workbook as a byte array with streaming low-memory footprint
      */
     public byte[] exportMultiSheetExcel(List<SheetData> sheets) {
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+        try (SXSSFWorkbook workbook = new SXSSFWorkbook(100); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             for (SheetData sd : sheets) {
-                Sheet sheet = workbook.createSheet(sanitizeSheetName(sd.sheetName()));
+                SXSSFSheet sheet = workbook.createSheet(sanitizeSheetName(sd.sheetName()));
+                sheet.trackAllColumnsForAutoSizing();
                 applyStylesAndPopulate(workbook, sheet, sd.headers(), sd.rows());
             }
             workbook.write(out);
+            workbook.dispose();
             return out.toByteArray();
         } catch (IOException e) {
             throw new RuntimeException("Failed to generate multi-sheet Excel export", e);
