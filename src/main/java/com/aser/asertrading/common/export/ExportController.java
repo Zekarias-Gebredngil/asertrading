@@ -151,12 +151,13 @@ public class ExportController {
     @Operation(summary = "Export orders to Excel (all records or requested page)")
     public ResponseEntity<byte[]> exportOrders(
             @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) Long branchId,
             @RequestParam(defaultValue = "true") boolean exportAll,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         Pageable pageable = exportAll ? Pageable.unpaged() : PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<OrderDto> ordersPage = orderService.getOrders(status, pageable);
+        Page<OrderDto> ordersPage = orderService.getOrders(status, branchId, pageable);
 
         List<String> headers = List.of(
                 "Order Number", "Date Created", "Customer Name", "Customer Phone", "Customer Email",

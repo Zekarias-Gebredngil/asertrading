@@ -52,9 +52,10 @@ public class OrderController {
     }
 
     @GetMapping("/orders")
-    @Operation(summary = "List customer or company orders with optional status filter")
+    @Operation(summary = "List customer or company orders with optional status and branch filter")
     public ApiResponse<PagedResponse<OrderDto>> getOrders(
             @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) Long branchId,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             Authentication authentication) {
 
@@ -63,13 +64,13 @@ public class OrderController {
                     .anyMatch(a -> !a.getAuthority().equals("ROLE_CUSTOMER"));
 
             if (isStaff) {
-                return ApiResponse.success(PagedResponse.of(orderService.getOrders(status, pageable)));
+                return ApiResponse.success(PagedResponse.of(orderService.getOrders(status, branchId, pageable)));
             } else {
                 return ApiResponse.success(PagedResponse.of(orderService.getCustomerOrders(principal.getEmail(), pageable)));
             }
         }
 
-        return ApiResponse.success(PagedResponse.of(orderService.getOrders(status, pageable)));
+        return ApiResponse.success(PagedResponse.of(orderService.getOrders(status, branchId, pageable)));
     }
 
     @GetMapping("/orders/{id}")

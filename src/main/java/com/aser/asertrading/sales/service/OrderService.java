@@ -7,6 +7,7 @@ import com.aser.asertrading.common.audit.AuditService;
 import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.common.exception.InsufficientStockException;
 import com.aser.asertrading.common.exception.ResourceNotFoundException;
+import com.aser.asertrading.identity.service.SecurityBranchService;
 import com.aser.asertrading.inventory.domain.StockBalance;
 import com.aser.asertrading.inventory.repository.StockBalanceRepository;
 import com.aser.asertrading.inventory.service.StockReservationService;
@@ -23,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +50,7 @@ public class OrderService {
     private final StockReservationService stockReservationService;
     private final PaymentRepository paymentRepository;
     private final AuditService auditService;
+    private final SecurityBranchService securityBranchService;
 
     public static final BigDecimal VAT_RATE = BigDecimal.valueOf(0.15); // 15% VAT
 
@@ -160,6 +163,14 @@ public class OrderService {
 
         String orderNumber = "ORD-" + System.currentTimeMillis() % 10000000;
 
+        Long branchId = request.collectionBranchId();
+        if (branchId == null && warehouseId != null) {
+            branchId = warehouseRepository.findById(warehouseId)
+                    .filter(w -> w.getBranch() != null)
+                    .map(w -> w.getBranch().getId())
+                    .orElse(null);
+        }
+
         Order order = Order.builder()
                 .orderNumber(orderNumber)
                 .customerId(customer != null ? customer.getId() : null)
@@ -168,7 +179,7 @@ public class OrderService {
                 .customerPhone(request.customerPhone())
                 .deliveryType(request.deliveryType())
                 .deliveryAddress(request.deliveryAddress())
-                .collectionBranchId(request.collectionBranchId())
+                .collectionBranchId(branchId)
                 .fulfillmentWarehouseId(warehouseId)
                 .status(OrderStatus.PENDING_PAYMENT)
                 .notes(request.notes())
@@ -257,6 +268,11 @@ public class OrderService {
     @Transactional
     public OrderDto updateOrderStatus(Long orderId, OrderStatus newStatus, String comment, String paymentStatusStr, String actor) {
         Order order = getOrderEntity(orderId);
+
+        if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
+            throw new AccessDeniedException("Access denied: You do not have permission to manage orders for another branch.");
+        }
+
         OrderStatus currentStatus = order.getStatus();
 
         // Validate allowed transitions
@@ -338,9 +354,29 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public Page<OrderDto> getOrders(OrderStatus status, Pageable pageable) {
-        Page<Order> orders = status != null
-                ? orderRepository.findByStatus(status, pageable)
-                : orderRepository.findAll(pageable);
+        return getOrders(status, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<OrderDto> getOrders(OrderStatus status, Long requestedBranchId, Pageable pageable) {
+        Page<Order> orders;
+
+        if (securityBranchService.hasGlobalBranchAccess()) {
+            if (requestedBranchId != null) {
+                orders = orderRepository.findByBranchAndOptionalStatus(requestedBranchId, status, pageable);
+            } else if (status != null) {
+                orders = orderRepository.findByStatus(status, pageable);
+            } else {
+                orders = orderRepository.findAll(pageable);
+            }
+        } else {
+            Long callerBranchId = securityBranchService.getCallerBranchId();
+            if (callerBranchId == null) {
+                orders = Page.empty(pageable);
+            } else {
+                orders = orderRepository.findByBranchAndOptionalStatus(callerBranchId, status, pageable);
+            }
+        }
 
         return orders.map(this::mapToDto);
     }
@@ -352,7 +388,11 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderDto getOrderById(Long id) {
-        return mapToDto(getOrderEntity(id));
+        Order order = getOrderEntity(id);
+        if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
+            throw new AccessDeniedException("Access denied: You do not have permission to view orders belonging to another branch.");
+        }
+        return mapToDto(order);
     }
 
     @Transactional(readOnly = true)

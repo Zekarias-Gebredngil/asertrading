@@ -132,4 +132,30 @@ public class SecurityBranchService {
         boolean isDest = dst != null && dst.getBranch() != null && callerBranchId.equals(dst.getBranch().getId());
         return isSource || isDest;
     }
+
+    /**
+     * Checks whether an online order belongs to the caller's assigned branch.
+     * Evaluates true if user has global branch access, or if the order's collection branch
+     * or fulfillment warehouse belongs to the caller's assigned branch.
+     */
+    public boolean canAccessOrder(Long collectionBranchId, Long fulfillmentWarehouseId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || hasGlobalBranchAccess()) {
+            return true;
+        }
+        Long callerBranchId = getCallerBranchId();
+        if (callerBranchId == null) {
+            return false;
+        }
+        if (collectionBranchId != null && collectionBranchId.equals(callerBranchId)) {
+            return true;
+        }
+        if (fulfillmentWarehouseId != null) {
+            Warehouse wh = warehouseRepository.findById(fulfillmentWarehouseId).orElse(null);
+            if (wh != null && wh.getBranch() != null && callerBranchId.equals(wh.getBranch().getId())) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
