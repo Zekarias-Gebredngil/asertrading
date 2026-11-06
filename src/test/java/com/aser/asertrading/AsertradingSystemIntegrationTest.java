@@ -3,6 +3,9 @@ package com.aser.asertrading;
 import com.aser.asertrading.catalog.domain.Product;
 import com.aser.asertrading.catalog.domain.ProductStatus;
 import com.aser.asertrading.catalog.repository.ProductRepository;
+import com.aser.asertrading.identity.domain.Role;
+import com.aser.asertrading.identity.domain.User;
+import com.aser.asertrading.identity.service.UserPrincipal;
 import com.aser.asertrading.identity.web.dto.AuthResponse;
 import com.aser.asertrading.identity.web.dto.LoginRequest;
 import com.aser.asertrading.inventory.domain.ReferenceType;
@@ -34,6 +37,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -44,6 +50,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -283,6 +290,62 @@ class AsertradingSystemIntegrationTest {
         StockTransferDto transferWhId = transferWorkflowService.createTransfer(transferReqWhId, "manager");
         assertThat(transferWhId.status()).isEqualTo(TransferStatus.DRAFT);
         assertThat(transferWhId.destinationWarehouseId()).isEqualTo(provisionedWh.getId());
+
+        // 5. Test bidirectional access enforcement when caller is assigned to the new branch (e.g. Branch 5)
+        User branchManager = User.builder()
+                .id(9999L)
+                .username("hawassa_manager")
+                .email("hawassa_mgr@asertrading.et")
+                .passwordHash("hash")
+                .fullName("Hawassa Branch Manager")
+                .role(Role.BRANCH_MANAGER)
+                .assignedBranchId(newBranch.id())
+                .isActive(true)
+                .build();
+        UserPrincipal principal = new UserPrincipal(branchManager);
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities())
+        );
+
+        try {
+            // 5a. Inbound replenishment: Requesting stock from HQ (Branch 1) into Hawassa (Branch 5)
+            CreateTransferRequest inboundReq = new CreateTransferRequest(
+                    sourceWh.getId(),
+                    provisionedWh.getId(),
+                    "Inbound shortage replenishment request for Hawassa",
+                    List.of(new TransferItemRequest(product.getId(), BigDecimal.valueOf(5)))
+            );
+            StockTransferDto inboundTransfer = transferWorkflowService.createTransfer(inboundReq, "hawassa_manager");
+            assertThat(inboundTransfer.status()).isEqualTo(TransferStatus.DRAFT);
+            assertThat(inboundTransfer.sourceWarehouseId()).isEqualTo(sourceWh.getId());
+            assertThat(inboundTransfer.destinationWarehouseId()).isEqualTo(provisionedWh.getId());
+
+            // 5b. Outbound transfer: Sending stock from Hawassa (Branch 5) to HQ (Branch 1)
+            CreateTransferRequest outboundReq = new CreateTransferRequest(
+                    provisionedWh.getId(),
+                    sourceWh.getId(),
+                    "Outbound stock return from Hawassa to HQ",
+                    List.of(new TransferItemRequest(product.getId(), BigDecimal.valueOf(3)))
+            );
+            StockTransferDto outboundTransfer = transferWorkflowService.createTransfer(outboundReq, "hawassa_manager");
+            assertThat(outboundTransfer.status()).isEqualTo(TransferStatus.DRAFT);
+            assertThat(outboundTransfer.sourceWarehouseId()).isEqualTo(provisionedWh.getId());
+            assertThat(outboundTransfer.destinationWarehouseId()).isEqualTo(sourceWh.getId());
+
+            // 5c. Third-party transfer attempt: Hawassa manager tries to transfer between HQ and Bole (neither is Hawassa)
+            Warehouse boleWh = warehouseRepository.findByCode("BOLE-STORE").orElseThrow();
+            CreateTransferRequest unauthorizedReq = new CreateTransferRequest(
+                    sourceWh.getId(),
+                    boleWh.getId(),
+                    "Unauthorized inter-branch transfer between foreign branches",
+                    List.of(new TransferItemRequest(product.getId(), BigDecimal.valueOf(2)))
+            );
+            assertThatThrownBy(() -> transferWorkflowService.createTransfer(unauthorizedReq, "hawassa_manager"))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("Access denied");
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     @Test

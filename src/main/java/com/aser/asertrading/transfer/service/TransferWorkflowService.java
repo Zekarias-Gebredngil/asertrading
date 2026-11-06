@@ -119,6 +119,9 @@ public class TransferWorkflowService {
             throw new BadRequestException("Only transfers in DRAFT status can be submitted for approval");
         }
 
+        // Security assertion: caller must belong to either source or destination branch
+        securityBranchService.validateTransferInitiationAccess(transfer.getSourceWarehouseId(), transfer.getDestinationWarehouseId());
+
         transfer.setStatus(TransferStatus.PENDING_APPROVAL);
 
         TransferEvent event = TransferEvent.builder()
