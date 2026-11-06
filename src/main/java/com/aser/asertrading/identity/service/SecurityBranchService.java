@@ -134,6 +134,31 @@ public class SecurityBranchService {
     }
 
     /**
+     * Asserts that the caller is permitted to initiate a stock transfer between source and destination warehouses.
+     * Supports both directions for branch staff:
+     * 1) Outbound push: Transferring equipment/stock from caller's assigned branch to another branch.
+     * 2) Inbound pull/request: Requesting replenishment from another branch (e.g. HQ) to caller's assigned branch.
+     * Global roles (SYSTEM_ADMINISTRATOR, COMPANY_MANAGER, INVENTORY_MANAGER, etc.) can initiate transfers across any branches.
+     */
+    public void validateTransferInitiationAccess(Long sourceWarehouseId, Long destinationWarehouseId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || hasGlobalBranchAccess()) {
+            return;
+        }
+        if (!canAccessTransfer(sourceWarehouseId, destinationWarehouseId)) {
+            Long callerBranchId = getCallerBranchId();
+            Warehouse src = warehouseRepository.findById(sourceWarehouseId).orElse(null);
+            Warehouse dst = warehouseRepository.findById(destinationWarehouseId).orElse(null);
+            Long srcBranchId = (src != null && src.getBranch() != null) ? src.getBranch().getId() : null;
+            Long dstBranchId = (dst != null && dst.getBranch() != null) ? dst.getBranch().getId() : null;
+            throw new AccessDeniedException(String.format(
+                    "Access denied: Transfer involves source branch %s and destination branch %s, but your assigned branch is %s. You can only request or initiate transfers where your branch is either the source or destination.",
+                    srcBranchId, dstBranchId, callerBranchId
+            ));
+        }
+    }
+
+    /**
      * Checks whether an online order belongs to the caller's assigned branch.
      * Evaluates true if user has global branch access, or if the order's collection branch
      * or fulfillment warehouse belongs to the caller's assigned branch.

@@ -69,8 +69,8 @@ public class TransferWorkflowService {
             throw new BadRequestException("Source and destination warehouses must be different");
         }
 
-        // Security assertion: caller must belong to source branch (or possess global multi-branch access)
-        securityBranchService.validateWarehouseAccess(sourceWh.getId());
+        // Security assertion: caller must belong to either source branch (outbound) or destination branch (inbound replenishment request)
+        securityBranchService.validateTransferInitiationAccess(sourceWh.getId(), destWh.getId());
 
         String transferNumber = "TRF-" + System.currentTimeMillis() % 10000000;
 
