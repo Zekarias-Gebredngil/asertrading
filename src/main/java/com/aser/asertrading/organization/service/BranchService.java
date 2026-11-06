@@ -8,7 +8,9 @@ import com.aser.asertrading.organization.domain.Warehouse;
 import com.aser.asertrading.organization.repository.BranchRepository;
 import com.aser.asertrading.organization.repository.WarehouseRepository;
 import com.aser.asertrading.organization.web.dto.BranchDto;
+import com.aser.asertrading.organization.web.dto.BranchWarehouseRequest;
 import com.aser.asertrading.organization.web.dto.CreateBranchRequest;
+import com.aser.asertrading.organization.web.dto.WarehouseDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -17,6 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -29,15 +33,23 @@ public class BranchService {
 
     @Transactional(readOnly = true)
     public List<BranchDto> getAllBranches() {
+        Map<Long, List<WarehouseDto>> whMap = warehouseRepository.findAll().stream()
+                .map(WarehouseDto::fromEntity)
+                .collect(Collectors.groupingBy(WarehouseDto::branchId));
+
         return branchRepository.findAll().stream()
-                .map(BranchDto::fromEntity)
+                .map(b -> BranchDto.fromEntity(b, whMap.getOrDefault(b.getId(), List.of())))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<BranchDto> getActiveBranches() {
+        Map<Long, List<WarehouseDto>> whMap = warehouseRepository.findByIsActiveTrue().stream()
+                .map(WarehouseDto::fromEntity)
+                .collect(Collectors.groupingBy(WarehouseDto::branchId));
+
         return branchRepository.findByIsActiveTrue().stream()
-                .map(BranchDto::fromEntity)
+                .map(b -> BranchDto.fromEntity(b, whMap.getOrDefault(b.getId(), List.of())))
                 .toList();
     }
 
@@ -45,7 +57,10 @@ public class BranchService {
     public BranchDto getBranchById(Long id) {
         Branch branch = branchRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Branch not found with id: " + id));
-        return BranchDto.fromEntity(branch);
+        List<WarehouseDto> warehouses = warehouseRepository.findByBranchId(id).stream()
+                .map(WarehouseDto::fromEntity)
+                .toList();
+        return BranchDto.fromEntity(branch, warehouses);
     }
 
     @Transactional
@@ -67,13 +82,48 @@ public class BranchService {
 
         branch = branchRepository.save(branch);
 
-        // Auto-provision a default primary warehouse for the new branch so transfers, orders, and stock work out-of-the-box
+        // Process custom warehouses if provided, otherwise auto-provision default warehouse
+        if (request.warehouses() != null && !request.warehouses().isEmpty()) {
+            boolean hasDefault = request.warehouses().stream().anyMatch(w -> Boolean.TRUE.equals(w.isDefault()));
+            boolean isFirst = true;
+
+            for (BranchWarehouseRequest whReq : request.warehouses()) {
+                String whName = (whReq.name() != null && !whReq.name().isBlank())
+                        ? whReq.name().trim()
+                        : branch.getName() + " Warehouse";
+                String whCode = (whReq.code() != null && !whReq.code().isBlank())
+                        ? whReq.code().trim().toUpperCase()
+                        : code + "-WH";
+
+                if (warehouseRepository.existsByCode(whCode)) {
+                    throw new BadRequestException("Warehouse code '" + whCode + "' already exists");
+                }
+
+                boolean isDef = Boolean.TRUE.equals(whReq.isDefault()) || (!hasDefault && isFirst);
+                isFirst = false;
+
+                Warehouse wh = Warehouse.builder()
+                        .branch(branch)
+                        .name(whName)
+                        .code(whCode)
+                        .isDefault(isDef)
+                        .isActive(whReq.isActive() != null ? whReq.isActive() : true)
+                        .build();
+                warehouseRepository.save(wh);
+            }
+        }
+
+        // Auto-provision a default primary warehouse if none was marked default
         ensureDefaultWarehouse(branch);
 
         auditService.log(actor, "CREATE_BRANCH", "Branch", branch.getId().toString(),
                 "Created branch " + branch.getName() + " (" + branch.getCode() + ")", null);
 
-        return BranchDto.fromEntity(branch);
+        List<WarehouseDto> warehouses = warehouseRepository.findByBranchId(branch.getId()).stream()
+                .map(WarehouseDto::fromEntity)
+                .toList();
+
+        return BranchDto.fromEntity(branch, warehouses);
     }
 
     public Warehouse ensureDefaultWarehouse(Branch branch) {
@@ -139,10 +189,84 @@ public class BranchService {
 
         branch = branchRepository.save(branch);
 
-        auditService.log(actor, "UPDATE_BRANCH", "Branch", branch.getId().toString(),
-                "Updated branch " + branch.getName(), null);
+        // Process modifications to associated warehouses if provided
+        if (request.warehouses() != null && !request.warehouses().isEmpty()) {
+            boolean hasDefault = request.warehouses().stream().anyMatch(w -> Boolean.TRUE.equals(w.isDefault()));
+            boolean isFirst = true;
 
-        return BranchDto.fromEntity(branch);
+            for (BranchWarehouseRequest whReq : request.warehouses()) {
+                String whName = (whReq.name() != null && !whReq.name().isBlank())
+                        ? whReq.name().trim()
+                        : branch.getName() + " Warehouse";
+
+                String whCode = (whReq.code() != null && !whReq.code().isBlank())
+                        ? whReq.code().trim().toUpperCase()
+                        : newCode + "-WH";
+
+                boolean isDef = Boolean.TRUE.equals(whReq.isDefault()) || (!hasDefault && isFirst);
+                isFirst = false;
+
+                if (isDef) {
+                    // Clear default flag on other warehouses for this branch
+                    warehouseRepository.findByBranchIdAndIsDefaultTrue(branch.getId()).ifPresent(existingDef -> {
+                        if (whReq.id() == null || !existingDef.getId().equals(whReq.id())) {
+                            existingDef.setDefault(false);
+                            warehouseRepository.save(existingDef);
+                        }
+                    });
+                }
+
+                if (whReq.id() != null) {
+                    // Update existing warehouse belonging to this branch
+                    Warehouse wh = warehouseRepository.findById(whReq.id())
+                            .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + whReq.id()));
+
+                    if (!wh.getBranch().getId().equals(branch.getId())) {
+                        throw new BadRequestException("Warehouse " + whReq.id() + " does not belong to branch " + branch.getId());
+                    }
+
+                    if (!wh.getCode().equalsIgnoreCase(whCode) && warehouseRepository.existsByCode(whCode)) {
+                        throw new BadRequestException("Warehouse code '" + whCode + "' is already in use");
+                    }
+
+                    wh.setName(whName);
+                    wh.setCode(whCode);
+                    wh.setDefault(isDef);
+                    if (whReq.isActive() != null) {
+                        wh.setActive(whReq.isActive());
+                    }
+                    warehouseRepository.save(wh);
+                    log.info("[BranchService] Updated warehouse '{}' ({}) for branch '{}'", wh.getName(), wh.getCode(), branch.getName());
+                } else {
+                    // Add new warehouse to this branch
+                    if (warehouseRepository.existsByCode(whCode)) {
+                        throw new BadRequestException("Warehouse code '" + whCode + "' is already in use");
+                    }
+
+                    Warehouse newWh = Warehouse.builder()
+                            .branch(branch)
+                            .name(whName)
+                            .code(whCode)
+                            .isDefault(isDef)
+                            .isActive(whReq.isActive() != null ? whReq.isActive() : true)
+                            .build();
+                    warehouseRepository.save(newWh);
+                    log.info("[BranchService] Added new warehouse '{}' ({}) for branch '{}'", newWh.getName(), newWh.getCode(), branch.getName());
+                }
+            }
+        }
+
+        // Always ensure at least one default warehouse exists for the branch
+        ensureDefaultWarehouse(branch);
+
+        auditService.log(actor, "UPDATE_BRANCH", "Branch", branch.getId().toString(),
+                "Updated branch " + branch.getName() + " (" + branch.getCode() + ") and associated warehouses", null);
+
+        List<WarehouseDto> warehouses = warehouseRepository.findByBranchId(branch.getId()).stream()
+                .map(WarehouseDto::fromEntity)
+                .toList();
+
+        return BranchDto.fromEntity(branch, warehouses);
     }
 }
 

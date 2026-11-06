@@ -44,7 +44,7 @@ public class WarehouseController {
 
     @PostMapping
     @Operation(summary = "Create a new warehouse for a branch")
-    @PreAuthorize("hasRole('SYSTEM_ADMINISTRATOR')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER')")
     public ResponseEntity<ApiResponse<WarehouseDto>> createWarehouse(@Valid @RequestBody CreateWarehouseRequest request, Authentication auth) {
         WarehouseDto warehouse = warehouseService.createWarehouse(request, auth.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Warehouse created successfully", warehouse));
@@ -52,7 +52,7 @@ public class WarehouseController {
 
     @PutMapping("/{id}")
     @Operation(summary = "Update warehouse details")
-    @PreAuthorize("hasRole('SYSTEM_ADMINISTRATOR')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER')")
     public ApiResponse<WarehouseDto> updateWarehouse(
             @PathVariable Long id,
             @Valid @RequestBody CreateWarehouseRequest request,

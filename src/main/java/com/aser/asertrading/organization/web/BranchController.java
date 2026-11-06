@@ -40,15 +40,15 @@ public class BranchController {
 
     @PostMapping
     @Operation(summary = "Create a new branch")
-    @PreAuthorize("hasRole('SYSTEM_ADMINISTRATOR')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER')")
     public ResponseEntity<ApiResponse<BranchDto>> createBranch(@Valid @RequestBody CreateBranchRequest request, Authentication auth) {
         BranchDto branch = branchService.createBranch(request, auth.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Branch created successfully", branch));
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Update branch details")
-    @PreAuthorize("hasRole('SYSTEM_ADMINISTRATOR')")
+    @Operation(summary = "Update branch details and associated warehouses")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER')")
     public ApiResponse<BranchDto> updateBranch(
             @PathVariable Long id,
             @Valid @RequestBody CreateBranchRequest request,

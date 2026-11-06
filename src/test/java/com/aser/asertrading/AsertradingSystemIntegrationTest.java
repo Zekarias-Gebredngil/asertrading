@@ -17,6 +17,7 @@ import com.aser.asertrading.organization.domain.Warehouse;
 import com.aser.asertrading.organization.repository.WarehouseRepository;
 import com.aser.asertrading.organization.service.BranchService;
 import com.aser.asertrading.organization.web.dto.BranchDto;
+import com.aser.asertrading.organization.web.dto.BranchWarehouseRequest;
 import com.aser.asertrading.organization.web.dto.CreateBranchRequest;
 import com.aser.asertrading.sales.domain.DeliveryType;
 import com.aser.asertrading.sales.domain.PaymentMethod;
@@ -346,6 +347,69 @@ class AsertradingSystemIntegrationTest {
         } finally {
             SecurityContextHolder.clearContext();
         }
+    }
+
+    @Test
+    @DisplayName("Modifying branch allows updating branch code and associated warehouses simultaneously")
+    @Transactional
+    void testModifyBranchCodeAndWarehouses() {
+        // 1. Create a branch
+        String initialCode = "DIR-" + (System.currentTimeMillis() % 10000);
+        CreateBranchRequest createReq = new CreateBranchRequest(
+                "Dire Dawa Branch",
+                initialCode,
+                "Station Road",
+                "Dire Dawa",
+                "+251 25 111 2233",
+                "diredawa@asertrading.et",
+                true
+        );
+        BranchDto created = branchService.createBranch(createReq, "admin");
+        assertThat(created.code()).isEqualTo(initialCode);
+
+        // Retrieve the default provisioned warehouse
+        List<Warehouse> initialWhs = warehouseRepository.findByBranchId(created.id());
+        assertThat(initialWhs).hasSize(1);
+        Warehouse defaultWh = initialWhs.get(0);
+
+        // 2. Modify branch code, update the existing warehouse name/code, and add a secondary depot
+        String updatedBranchCode = "DIR-NEW-" + (System.currentTimeMillis() % 10000);
+        String updatedWhCode = updatedBranchCode + "-MAIN";
+        String secondWhCode = updatedBranchCode + "-DEPOT2";
+
+        CreateBranchRequest updateReq = new CreateBranchRequest(
+                "Dire Dawa Central Hub",
+                updatedBranchCode,
+                "Expressway Terminal",
+                "Dire Dawa",
+                "+251 25 999 8877",
+                "dire.hub@asertrading.et",
+                true,
+                List.of(
+                        new BranchWarehouseRequest(defaultWh.getId(), "Dire Dawa Main Storage", updatedWhCode, true, true),
+                        new BranchWarehouseRequest(null, "Dire Dawa Annex Depot", secondWhCode, false, true)
+                )
+        );
+
+        BranchDto updatedBranch = branchService.updateBranch(created.id(), updateReq, "admin");
+
+        // 3. Verify branch code update
+        assertThat(updatedBranch.code()).isEqualTo(updatedBranchCode);
+        assertThat(updatedBranch.name()).isEqualTo("Dire Dawa Central Hub");
+
+        // 4. Verify associated warehouses updated and added
+        List<Warehouse> updatedWhs = warehouseRepository.findByBranchId(created.id());
+        assertThat(updatedWhs).hasSize(2);
+
+        Warehouse foundMainWh = warehouseRepository.findById(defaultWh.getId()).orElseThrow();
+        assertThat(foundMainWh.getName()).isEqualTo("Dire Dawa Main Storage");
+        assertThat(foundMainWh.getCode()).isEqualTo(updatedWhCode);
+        assertThat(foundMainWh.isDefault()).isTrue();
+
+        Warehouse foundAnnexWh = warehouseRepository.findByCode(secondWhCode).orElseThrow();
+        assertThat(foundAnnexWh.getName()).isEqualTo("Dire Dawa Annex Depot");
+        assertThat(foundAnnexWh.getBranch().getId()).isEqualTo(created.id());
+        assertThat(foundAnnexWh.isDefault()).isFalse();
     }
 
     @Test
