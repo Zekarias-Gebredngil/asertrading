@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/v1/audit-logs")
 @RequiredArgsConstructor
 @Tag(name = "Audit Logs", description = "Endpoints for viewing system audit records")
-@PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'ACCOUNTANT_AUDITOR', 'COMPANY_MANAGER')")
+@PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'ACCOUNTANT_AUDITOR', 'COMPANY_MANAGER', 'BRANCH_MANAGER')")
 public class AuditController {
 
     private final AuditService auditService;

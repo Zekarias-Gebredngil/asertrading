@@ -102,7 +102,7 @@ public class OrderController {
 
     @PostMapping("/orders/{id}/confirm")
     @Operation(summary = "Confirm order (fulfills reserved stock into sales issue atomically)")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'SALES_OFFICER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'BRANCH_MANAGER', 'SALES_OFFICER')")
     public ApiResponse<OrderDto> confirmOrder(@PathVariable Long id, Authentication auth) {
         return ApiResponse.success("Order confirmed", orderService.confirmOrder(id, auth.getName()));
     }
@@ -120,7 +120,7 @@ public class OrderController {
 
     @PatchMapping("/orders/{id}/status")
     @Operation(summary = "Update order status and optional payment status")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'SALES_OFFICER', 'STOREKEEPER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'BRANCH_MANAGER', 'SALES_OFFICER', 'STOREKEEPER')")
     public ApiResponse<OrderDto> updateOrderStatus(
             @PathVariable Long id,
             @Valid @RequestBody UpdateOrderStatusRequest request,

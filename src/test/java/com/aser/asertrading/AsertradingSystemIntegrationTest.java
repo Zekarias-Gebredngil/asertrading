@@ -12,6 +12,9 @@ import com.aser.asertrading.inventory.web.dto.StockBalanceDto;
 import com.aser.asertrading.inventory.web.dto.StockReceiptRequest;
 import com.aser.asertrading.organization.domain.Warehouse;
 import com.aser.asertrading.organization.repository.WarehouseRepository;
+import com.aser.asertrading.organization.service.BranchService;
+import com.aser.asertrading.organization.web.dto.BranchDto;
+import com.aser.asertrading.organization.web.dto.CreateBranchRequest;
 import com.aser.asertrading.sales.domain.DeliveryType;
 import com.aser.asertrading.sales.domain.PaymentMethod;
 import com.aser.asertrading.sales.service.OrderService;
@@ -79,6 +82,9 @@ class AsertradingSystemIntegrationTest {
 
     @Autowired
     private TransferWorkflowService transferWorkflowService;
+
+    @Autowired
+    private BranchService branchService;
 
     @Test
     @DisplayName("Staff authentication returns valid JWT token and user authorities")
@@ -226,6 +232,57 @@ class AsertradingSystemIntegrationTest {
         BigDecimal afterReceiveDestStock = stockBalanceRepository.findByProductIdAndWarehouseId(product.getId(), destWh.getId())
                 .orElseThrow().getOnHandQuantity();
         assertThat(afterReceiveDestStock).isEqualByComparingTo(initialDestStock.add(BigDecimal.valueOf(20)));
+    }
+
+    @Test
+    @DisplayName("Dynamically created branch auto-provisions default warehouse and allows inter-branch transfer")
+    @Transactional
+    void testDynamicBranchTransferWorkflow() {
+        Product product = productRepository.findBySku("GAR-HTV-WHT-01").orElseThrow();
+        Warehouse sourceWh = warehouseRepository.findByCode("HQ-WH1").orElseThrow();
+
+        // 1. Create a new branch via BranchService (as happens from the UI)
+        CreateBranchRequest branchReq = new CreateBranchRequest(
+                "Hawassa Showroom",
+                "HAW-" + (System.currentTimeMillis() % 10000),
+                "Main Commercial Avenue",
+                "Hawassa",
+                "+251 46 220 1234",
+                "hawassa@asertrading.et",
+                true
+        );
+        BranchDto newBranch = branchService.createBranch(branchReq, "admin");
+        assertThat(newBranch).isNotNull();
+        assertThat(newBranch.id()).isNotNull();
+
+        // 2. Verify that default warehouse was auto-provisioned
+        List<Warehouse> branchWarehouses = warehouseRepository.findByBranchId(newBranch.id());
+        assertThat(branchWarehouses).isNotEmpty();
+        Warehouse provisionedWh = branchWarehouses.get(0);
+        assertThat(provisionedWh.isDefault()).isTrue();
+
+        // 3. Create transfer using new branch's ID as destinationWarehouseId (fallback behavior)
+        CreateTransferRequest transferReqBranchId = new CreateTransferRequest(
+                sourceWh.getId(),
+                newBranch.id(), // passing Branch ID directly!
+                "Initial stock replenishment for newly opened Hawassa branch",
+                List.of(new TransferItemRequest(product.getId(), BigDecimal.valueOf(15)))
+        );
+        StockTransferDto transferBranchId = transferWorkflowService.createTransfer(transferReqBranchId, "manager");
+        assertThat(transferBranchId.status()).isEqualTo(TransferStatus.DRAFT);
+        assertThat(transferBranchId.destinationWarehouseId()).isEqualTo(provisionedWh.getId());
+        assertThat(transferBranchId.destinationBranchName()).isEqualTo("Hawassa Showroom");
+
+        // 4. Create transfer using provisioned warehouse ID as destinationWarehouseId
+        CreateTransferRequest transferReqWhId = new CreateTransferRequest(
+                sourceWh.getId(),
+                provisionedWh.getId(), // passing Warehouse ID directly!
+                "Second shipment for Hawassa branch",
+                List.of(new TransferItemRequest(product.getId(), BigDecimal.valueOf(10)))
+        );
+        StockTransferDto transferWhId = transferWorkflowService.createTransfer(transferReqWhId, "manager");
+        assertThat(transferWhId.status()).isEqualTo(TransferStatus.DRAFT);
+        assertThat(transferWhId.destinationWarehouseId()).isEqualTo(provisionedWh.getId());
     }
 
     @Test

@@ -50,7 +50,7 @@ public class PaymentController {
 
     @PostMapping("/{id}/confirm-manual")
     @Operation(summary = "Confirm manual bank transfer or cash in hand payment (advances order to CONFIRMED and issues reserved stock)")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'ACCOUNTANT_AUDITOR', 'SALES_OFFICER', 'COMPANY_MANAGER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'ACCOUNTANT_AUDITOR', 'SALES_OFFICER', 'COMPANY_MANAGER', 'BRANCH_MANAGER')")
     public ApiResponse<PaymentDto> confirmPayment(
             @PathVariable Long id,
             @Valid @RequestBody ConfirmPaymentRequest request,

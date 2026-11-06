@@ -26,21 +26,18 @@ public class WarehouseController {
 
     @GetMapping
     @Operation(summary = "Get all warehouses")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'PROCUREMENT_OFFICER')")
     public ApiResponse<List<WarehouseDto>> getAllWarehouses() {
         return ApiResponse.success(warehouseService.getAllWarehouses());
     }
 
     @GetMapping("/branch/{branchId}")
     @Operation(summary = "Get warehouses by branch ID")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER')")
     public ApiResponse<List<WarehouseDto>> getWarehousesByBranch(@PathVariable Long branchId) {
         return ApiResponse.success(warehouseService.getWarehousesByBranch(branchId));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Get warehouse details by ID")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER')")
     public ApiResponse<WarehouseDto> getWarehouseById(@PathVariable Long id) {
         return ApiResponse.success(warehouseService.getWarehouseById(id));
     }

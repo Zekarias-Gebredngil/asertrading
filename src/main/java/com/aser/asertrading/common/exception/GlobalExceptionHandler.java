@@ -1,11 +1,14 @@
 package com.aser.asertrading.common.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -57,10 +60,17 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+    public ProblemDetail handleAccessDenied(AccessDeniedException ex, HttpServletRequest request) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String user = (auth != null && auth.isAuthenticated()) ? auth.getName() : "ANONYMOUS";
+        String authorities = (auth != null) ? auth.getAuthorities().toString() : "NONE";
+        log.warn("[AccessDenied] User '{}' with authorities {} was denied access to [{} {}]: {}",
+                user, authorities, request.getMethod(), request.getRequestURI(), ex.getMessage());
+
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Access denied: " + ex.getMessage());
         problem.setTitle("Forbidden");
         problem.setType(URI.create("https://aser.et/errors/forbidden"));
+        problem.setProperty("path", request.getRequestURI());
         problem.setProperty("timestamp", Instant.now());
         return problem;
     }

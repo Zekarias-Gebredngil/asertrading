@@ -16,8 +16,11 @@ import com.aser.asertrading.inventory.domain.StockMovementType;
 import com.aser.asertrading.inventory.repository.StockBalanceRepository;
 import com.aser.asertrading.inventory.repository.StockMovementRepository;
 import com.aser.asertrading.inventory.service.WeightedAverageCostService;
+import com.aser.asertrading.organization.domain.Branch;
 import com.aser.asertrading.organization.domain.Warehouse;
+import com.aser.asertrading.organization.repository.BranchRepository;
 import com.aser.asertrading.organization.repository.WarehouseRepository;
+import com.aser.asertrading.organization.service.BranchService;
 import com.aser.asertrading.transfer.domain.*;
 import com.aser.asertrading.transfer.repository.StockTransferRepository;
 import com.aser.asertrading.transfer.repository.TransferDiscrepancyRepository;
@@ -35,6 +38,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -49,6 +53,8 @@ public class TransferWorkflowService {
     private final StockMovementRepository stockMovementRepository;
     private final ProductRepository productRepository;
     private final WarehouseRepository warehouseRepository;
+    private final BranchRepository branchRepository;
+    private final BranchService branchService;
     private final WeightedAverageCostService costService;
     private final AuditService auditService;
     private final UserRepository userRepository;
@@ -56,15 +62,12 @@ public class TransferWorkflowService {
 
     @Transactional
     public StockTransferDto createTransfer(CreateTransferRequest request, String actor) {
-        if (request.sourceWarehouseId().equals(request.destinationWarehouseId())) {
+        Warehouse sourceWh = resolveWarehouse(request.sourceWarehouseId(), "Source");
+        Warehouse destWh = resolveWarehouse(request.destinationWarehouseId(), "Destination");
+
+        if (sourceWh.getId().equals(destWh.getId())) {
             throw new BadRequestException("Source and destination warehouses must be different");
         }
-
-        Warehouse sourceWh = warehouseRepository.findById(request.sourceWarehouseId())
-                .orElseThrow(() -> new ResourceNotFoundException("Source warehouse not found with id: " + request.sourceWarehouseId()));
-
-        Warehouse destWh = warehouseRepository.findById(request.destinationWarehouseId())
-                .orElseThrow(() -> new ResourceNotFoundException("Destination warehouse not found with id: " + request.destinationWarehouseId()));
 
         // Security assertion: caller must belong to source branch (or possess global multi-branch access)
         securityBranchService.validateWarehouseAccess(sourceWh.getId());
@@ -494,6 +497,37 @@ public class TransferWorkflowService {
                 itemDtos,
                 eventDtos
         );
+    }
+
+    private Warehouse resolveWarehouse(Long warehouseOrBranchId, String role) {
+        if (warehouseOrBranchId == null) {
+            throw new BadRequestException(role + " warehouse ID is required");
+        }
+
+        // 1. Direct warehouse match by ID
+        Optional<Warehouse> directWh = warehouseRepository.findById(warehouseOrBranchId);
+        if (directWh.isPresent()) {
+            return directWh.get();
+        }
+
+        // 2. Check if the provided ID was a Branch ID, find default warehouse or any warehouse for this branch
+        Optional<Warehouse> branchWh = warehouseRepository.findByBranchIdAndIsDefaultTrue(warehouseOrBranchId)
+                .or(() -> warehouseRepository.findByBranchId(warehouseOrBranchId).stream().findFirst());
+        if (branchWh.isPresent()) {
+            log.info("[TransferWorkflowService] Resolved {} warehouse from branch ID {}: warehouse '{}' (ID {})",
+                    role, warehouseOrBranchId, branchWh.get().getName(), branchWh.get().getId());
+            return branchWh.get();
+        }
+
+        // 3. Check if branch exists with this ID - if so, ensure/provision its default warehouse
+        return branchRepository.findById(warehouseOrBranchId)
+                .map(branch -> {
+                    Warehouse wh = branchService.ensureDefaultWarehouse(branch);
+                    log.info("[TransferWorkflowService] Auto-provisioned default warehouse '{}' (ID {}) for branch '{}' (ID {}) during transfer creation",
+                            wh.getName(), wh.getId(), branch.getName(), branch.getId());
+                    return wh;
+                })
+                .orElseThrow(() -> new ResourceNotFoundException(role + " warehouse not found with id: " + warehouseOrBranchId));
     }
 }
 
