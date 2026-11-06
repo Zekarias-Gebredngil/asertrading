@@ -31,3 +31,15 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Environment & Secret Files ###
+.env
+.env.*
+*.env
+!.env.example
+*.key
+*.pem
+*.jks
+*.p12
+*.crt
+

@@ -358,7 +358,7 @@ public class DataInitializer implements CommandLineRunner {
                 .notes("Initial system opening inventory")
                 .build());
 
-        log.info("Baseline data seeded successfully. Admin: admin / Admin@123456");
+        log.info("Baseline data seeded successfully. Default admin account initialized (username: 'admin').");
     }
 
     private void seedServicesIfEmpty() {

@@ -1,15 +1,15 @@
 services:
   postgres:
-    image: 'postgres:latest'
+    image: "postgres:latest"
     container_name: asertrading-postgres-1
     restart: unless-stopped
     environment:
-      - 'POSTGRES_DB=asertrading_db'
-      - 'POSTGRES_PASSWORD=123456'
-      - 'POSTGRES_USER=postgres'
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - '5439:5432'
+      - "${POSTGRES_PORT}"
   redis:
-    image: 'redis:latest'
+    image: "redis:latest"
     ports:
-      - '6379'
+      - "${REDIS_PORT}"
