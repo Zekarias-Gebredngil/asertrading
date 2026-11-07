@@ -8,6 +8,7 @@ public record StockSummaryReportDto(
         BigDecimal totalUnitsOnHand,
         BigDecimal totalUnitsReserved,
         BigDecimal totalUnitsAvailable,
+        int totalWarehouses,
         List<BranchStockSummary> branchSummaries
 ) {
     public record BranchStockSummary(
@@ -15,9 +16,12 @@ public record StockSummaryReportDto(
             String branchName,
             String branchCode,
             int warehouseCount,
+            int totalProducts,
+            BigDecimal totalUnitsOnHand,
             BigDecimal totalOnHand,
             BigDecimal totalReserved,
-            BigDecimal totalAvailable
+            BigDecimal totalAvailable,
+            BigDecimal totalValuationEtb
     ) {}
 }
 

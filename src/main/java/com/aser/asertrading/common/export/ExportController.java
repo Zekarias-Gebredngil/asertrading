@@ -367,14 +367,15 @@ public class ExportController {
 
         // Sheet 3: Branch Stock Breakdown
         if (stock != null && stock.branchSummaries() != null && !stock.branchSummaries().isEmpty()) {
-            List<String> branchHeaders = List.of("Branch Name", "Branch Code", "Warehouse Count", "Total On Hand Units", "Total Reserved Units", "Total Available Units");
+            List<String> branchHeaders = List.of("Branch Name", "Branch Code", "Warehouse Count", "Total On Hand Units", "Total Reserved Units", "Total Available Units", "Branch Valuation (ETB)");
             List<List<Object>> branchRows = stock.branchSummaries().stream().map(b -> row(
                     b.branchName(),
                     b.branchCode(),
                     b.warehouseCount(),
                     b.totalOnHand(),
                     b.totalReserved(),
-                    b.totalAvailable()
+                    b.totalAvailable(),
+                    b.totalValuationEtb() != null ? b.totalValuationEtb() : BigDecimal.ZERO
             )).toList();
             sheets.add(new SheetData("Branch Stock Summary", branchHeaders, branchRows));
         }

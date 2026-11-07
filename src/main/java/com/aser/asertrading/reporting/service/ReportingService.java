@@ -59,6 +59,9 @@ public class ReportingService {
                 .filter(b -> allowedWarehouseIds.contains(b.getWarehouseId()))
                 .toList();
 
+        Map<Long, Product> productMap = productRepository.findAll().stream()
+                .collect(Collectors.toMap(Product::getId, p -> p));
+
         Map<Long, List<Warehouse>> branchWarehouses = warehouses.stream()
                 .collect(Collectors.groupingBy(w -> w.getBranch().getId()));
 
@@ -76,15 +79,35 @@ public class ReportingService {
             BigDecimal bOnHand = BigDecimal.ZERO;
             BigDecimal bReserved = BigDecimal.ZERO;
             BigDecimal bAvailable = BigDecimal.ZERO;
+            BigDecimal bValuation = BigDecimal.ZERO;
+            Set<Long> bProductIds = new HashSet<>();
 
             for (Warehouse w : whs) {
                 List<StockBalance> whBalances = warehouseBalances.getOrDefault(w.getId(), List.of());
                 for (StockBalance sb : whBalances) {
-                    bOnHand = bOnHand.add(sb.getOnHandQuantity());
-                    bReserved = bReserved.add(sb.getReservedQuantity());
-                    bAvailable = bAvailable.add(sb.getAvailableQuantity());
+                    BigDecimal onHand = sb.getOnHandQuantity() != null ? sb.getOnHandQuantity() : BigDecimal.ZERO;
+                    BigDecimal reserved = sb.getReservedQuantity() != null ? sb.getReservedQuantity() : BigDecimal.ZERO;
+                    BigDecimal available = sb.getAvailableQuantity() != null ? sb.getAvailableQuantity() : BigDecimal.ZERO;
+
+                    bOnHand = bOnHand.add(onHand);
+                    bReserved = bReserved.add(reserved);
+                    bAvailable = bAvailable.add(available);
+
+                    if (sb.getProductId() != null) {
+                        bProductIds.add(sb.getProductId());
+                        Product p = productMap.get(sb.getProductId());
+                        BigDecimal unitCost = sb.getWeightedAverageCost();
+                        if ((unitCost == null || unitCost.compareTo(BigDecimal.ZERO) <= 0) && p != null && p.getPurchaseCost() != null) {
+                            unitCost = p.getPurchaseCost();
+                        }
+                        if (unitCost != null && onHand.compareTo(BigDecimal.ZERO) > 0) {
+                            bValuation = bValuation.add(onHand.multiply(unitCost));
+                        }
+                    }
                 }
             }
+
+            bValuation = bValuation.setScale(2, RoundingMode.HALF_UP);
 
             totalOnHand = totalOnHand.add(bOnHand);
             totalReserved = totalReserved.add(bReserved);
@@ -95,9 +118,12 @@ public class ReportingService {
                     b.getName(),
                     b.getCode(),
                     whs.size(),
+                    bProductIds.size(),
+                    bOnHand,
                     bOnHand,
                     bReserved,
-                    bAvailable
+                    bAvailable,
+                    bValuation
             ));
         }
 
@@ -108,6 +134,7 @@ public class ReportingService {
                 totalOnHand,
                 totalReserved,
                 totalAvailable,
+                warehouses.size(),
                 branchSummaries
         );
     }
@@ -142,6 +169,9 @@ public class ReportingService {
 
             BigDecimal onHand = b.getOnHandQuantity();
             BigDecimal unitCost = b.getWeightedAverageCost();
+            if ((unitCost == null || unitCost.compareTo(BigDecimal.ZERO) <= 0) && p != null && p.getPurchaseCost() != null) {
+                unitCost = p.getPurchaseCost();
+            }
             BigDecimal valuation = (onHand != null && unitCost != null)
                     ? onHand.multiply(unitCost).setScale(2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
