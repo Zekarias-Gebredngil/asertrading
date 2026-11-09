@@ -53,7 +53,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -444,6 +446,30 @@ class AsertradingSystemIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.content[?(@.quotationOnly == false)]").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("CORS allows requests from LAN frontend origin http://192.168.0.208:4200")
+    void testCorsAllowedOrigins() throws Exception {
+        MockMvc secureMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                .apply(org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity())
+                .build();
+
+        // Preflight OPTIONS request
+        secureMvc.perform(options("/api/v1/public/services")
+                        .header("Origin", "http://192.168.0.208:4200")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://192.168.0.208:4200"))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+
+        // Direct GET request
+        secureMvc.perform(get("/api/v1/public/services")
+                        .header("Origin", "http://192.168.0.208:4200")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://192.168.0.208:4200"))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
     }
 }
 

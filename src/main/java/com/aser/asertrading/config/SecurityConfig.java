@@ -35,7 +35,7 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final UserDetailsService userDetailsService;
 
-    @Value("${app.cors.allowed-origins:http://localhost:4200,http://localhost:3000,http://127.0.0.1:4200}")
+    @Value("${app.cors.allowed-origins:http://localhost:4200,http://localhost:3000,http://127.0.0.1:4200,http://192.168.0.208:4200}")
     private String allowedOrigins;
 
     @Bean
@@ -54,15 +54,14 @@ public class SecurityConfig {
                                 "/uploads/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/v3/api-docs/**"
-                        ).permitAll()
+                                "/v3/api-docs/**")
+                        .permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/categories/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/units/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/warehouses/**").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/v1/orders").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/orders/number/*").permitAll()
-                        .anyRequest().authenticated()
-                )
+                        .anyRequest().authenticated())
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -89,9 +88,19 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList(allowedOrigins.split(",")));
+        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .flatMap(origin -> {
+                    String clean = origin.endsWith("/") ? origin.substring(0, origin.length() - 1) : origin;
+                    return java.util.stream.Stream.of(clean, clean + "/");
+                })
+                .distinct()
+                .toList();
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin",
+                "Access-Control-Request-Method", "Access-Control-Request-Headers"));
         configuration.setExposedHeaders(List.of("Authorization", "Content-Disposition"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
@@ -101,4 +110,3 @@ public class SecurityConfig {
         return source;
     }
 }
-
