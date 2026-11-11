@@ -1,22 +1,33 @@
 package com.aser.asertrading.common.export;
 
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.streaming.SXSSFSheet;
-import org.apache.poi.xssf.streaming.SXSSFWorkbook;
-import org.springframework.stereotype.Service;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Map;
+
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.DataFormat;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.springframework.stereotype.Service;
 
 @Service
 public class ExcelExportService {
 
     /**
-     * Builds a single-sheet Excel workbook as a byte array with streaming low-memory footprint
+     * Builds a single-sheet Excel workbook as a byte array with streaming
+     * low-memory footprint
      */
     public byte[] exportToExcel(String sheetTitle, List<String> headers, List<List<Object>> rows) {
         try (SXSSFWorkbook workbook = new SXSSFWorkbook(100); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -32,7 +43,8 @@ public class ExcelExportService {
     }
 
     /**
-     * Builds a multi-sheet Excel workbook as a byte array with streaming low-memory footprint
+     * Builds a multi-sheet Excel workbook as a byte array with streaming low-memory
+     * footprint
      */
     public byte[] exportMultiSheetExcel(List<SheetData> sheets) {
         try (SXSSFWorkbook workbook = new SXSSFWorkbook(100); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -117,12 +129,14 @@ public class ExcelExportService {
         for (int i = 0; i < headers.size(); i++) {
             sheet.autoSizeColumn(i);
             int currentWidth = sheet.getColumnWidth(i);
-            sheet.setColumnWidth(i, Math.min(Math.max(currentWidth + 1200, 3500), 18000));
+            sheet.setColumnWidth(i, Math.clamp(currentWidth + 1200, 3500, 18000));
+
         }
     }
 
     private String sanitizeSheetName(String name) {
-        if (name == null || name.isBlank()) return "Sheet1";
+        if (name == null || name.isBlank())
+            return "Sheet1";
         String clean = name.replaceAll("[:\\\\/?*\\[\\]]", "");
         return clean.length() > 31 ? clean.substring(0, 31) : clean;
     }
@@ -132,4 +146,3 @@ public class ExcelExportService {
         return baseName + "_" + ts + ".xlsx";
     }
 }
-
