@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.regex.Pattern;
 
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
@@ -25,6 +26,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class ExcelExportService {
 
+    private static final Pattern INVALID_SHEET_CHARS = Pattern.compile("[:\\\\/?*\\[\\]]");
+    private static final DateTimeFormatter FILENAME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmm");
+
     /**
      * Builds a single-sheet Excel workbook as a byte array with streaming
      * low-memory footprint
@@ -35,10 +39,9 @@ public class ExcelExportService {
             sheet.trackAllColumnsForAutoSizing();
             applyStylesAndPopulate(workbook, sheet, headers, rows);
             workbook.write(out);
-            workbook.dispose();
             return out.toByteArray();
         } catch (IOException e) {
-            throw new RuntimeException("Failed to generate Excel export", e);
+            throw new IllegalStateException("Failed to generate Excel export", e);
         }
     }
 
@@ -54,10 +57,9 @@ public class ExcelExportService {
                 applyStylesAndPopulate(workbook, sheet, sd.headers(), sd.rows());
             }
             workbook.write(out);
-            workbook.dispose();
             return out.toByteArray();
         } catch (IOException e) {
-            throw new RuntimeException("Failed to generate multi-sheet Excel export", e);
+            throw new IllegalStateException("Failed to generate multi-sheet Excel export", e);
         }
     }
 
@@ -116,7 +118,7 @@ public class ExcelExportService {
                     cell.setCellValue(num.doubleValue());
                     cell.setCellStyle(numberStyle);
                 } else if (val instanceof Boolean b) {
-                    cell.setCellValue(b ? "Yes" : "No");
+                    cell.setCellValue(Boolean.TRUE.equals(b) ? "Yes" : "No");
                     cell.setCellStyle(dataStyle);
                 } else {
                     cell.setCellValue(String.valueOf(val));
@@ -130,19 +132,19 @@ public class ExcelExportService {
             sheet.autoSizeColumn(i);
             int currentWidth = sheet.getColumnWidth(i);
             sheet.setColumnWidth(i, Math.clamp(currentWidth + 1200, 3500, 18000));
-
         }
     }
 
     private String sanitizeSheetName(String name) {
-        if (name == null || name.isBlank())
+        if (name == null || name.isBlank()) {
             return "Sheet1";
-        String clean = name.replaceAll("[:\\\\/?*\\[\\]]", "");
+        }
+        String clean = INVALID_SHEET_CHARS.matcher(name).replaceAll("");
         return clean.length() > 31 ? clean.substring(0, 31) : clean;
     }
 
     public String generateTimestampedFilename(String baseName) {
-        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"));
+        String ts = LocalDateTime.now().format(FILENAME_FORMATTER);
         return baseName + "_" + ts + ".xlsx";
     }
 }

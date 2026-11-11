@@ -10,7 +10,10 @@ import com.aser.asertrading.organization.domain.Branch;
 import com.aser.asertrading.organization.domain.Warehouse;
 import com.aser.asertrading.organization.repository.BranchRepository;
 import com.aser.asertrading.organization.repository.WarehouseRepository;
-import com.aser.asertrading.reporting.dto.*;
+import com.aser.asertrading.reporting.dto.SalesReportDto;
+import com.aser.asertrading.reporting.dto.StockSummaryReportDto;
+import com.aser.asertrading.reporting.dto.StockValuationReportDto;
+import com.aser.asertrading.reporting.dto.TransferReportDto;
 import com.aser.asertrading.sales.domain.DeliveryType;
 import com.aser.asertrading.sales.domain.Order;
 import com.aser.asertrading.sales.domain.OrderStatus;
@@ -25,7 +28,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -63,7 +72,7 @@ public class ReportingService {
                 .toList();
 
         Map<Long, Product> productMap = productRepository.findAll().stream()
-                .collect(Collectors.toMap(Product::getId, p -> p));
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
 
         Map<Long, List<Warehouse>> branchWarehouses = warehouses.stream()
                 .collect(Collectors.groupingBy(w -> w.getBranch().getId()));
@@ -79,55 +88,13 @@ public class ReportingService {
 
         for (Branch b : branches) {
             List<Warehouse> whs = branchWarehouses.getOrDefault(b.getId(), List.of());
-            BigDecimal bOnHand = BigDecimal.ZERO;
-            BigDecimal bReserved = BigDecimal.ZERO;
-            BigDecimal bAvailable = BigDecimal.ZERO;
-            BigDecimal bValuation = BigDecimal.ZERO;
-            Set<Long> bProductIds = new HashSet<>();
+            StockSummaryReportDto.BranchStockSummary summary = buildBranchStockSummary(b, whs, warehouseBalances, productMap);
 
-            for (Warehouse w : whs) {
-                List<StockBalance> whBalances = warehouseBalances.getOrDefault(w.getId(), List.of());
-                for (StockBalance sb : whBalances) {
-                    BigDecimal onHand = sb.getOnHandQuantity() != null ? sb.getOnHandQuantity() : BigDecimal.ZERO;
-                    BigDecimal reserved = sb.getReservedQuantity() != null ? sb.getReservedQuantity() : BigDecimal.ZERO;
-                    BigDecimal available = sb.getAvailableQuantity() != null ? sb.getAvailableQuantity() : BigDecimal.ZERO;
+            totalOnHand = totalOnHand.add(summary.totalOnHand());
+            totalReserved = totalReserved.add(summary.totalReserved());
+            totalAvailable = totalAvailable.add(summary.totalAvailable());
 
-                    bOnHand = bOnHand.add(onHand);
-                    bReserved = bReserved.add(reserved);
-                    bAvailable = bAvailable.add(available);
-
-                    if (sb.getProductId() != null) {
-                        bProductIds.add(sb.getProductId());
-                        Product p = productMap.get(sb.getProductId());
-                        BigDecimal unitCost = sb.getWeightedAverageCost();
-                        if ((unitCost == null || unitCost.compareTo(BigDecimal.ZERO) <= 0) && p != null && p.getPurchaseCost() != null) {
-                            unitCost = p.getPurchaseCost();
-                        }
-                        if (unitCost != null && onHand.compareTo(BigDecimal.ZERO) > 0) {
-                            bValuation = bValuation.add(onHand.multiply(unitCost));
-                        }
-                    }
-                }
-            }
-
-            bValuation = bValuation.setScale(2, RoundingMode.HALF_UP);
-
-            totalOnHand = totalOnHand.add(bOnHand);
-            totalReserved = totalReserved.add(bReserved);
-            totalAvailable = totalAvailable.add(bAvailable);
-
-            branchSummaries.add(new StockSummaryReportDto.BranchStockSummary(
-                    b.getId(),
-                    b.getName(),
-                    b.getCode(),
-                    whs.size(),
-                    bProductIds.size(),
-                    bOnHand,
-                    bOnHand,
-                    bReserved,
-                    bAvailable,
-                    bValuation
-            ));
+            branchSummaries.add(summary);
         }
 
         long distinctProducts = balances.stream().map(StockBalance::getProductId).distinct().count();
@@ -140,6 +107,66 @@ public class ReportingService {
                 warehouses.size(),
                 branchSummaries
         );
+    }
+
+    private StockSummaryReportDto.BranchStockSummary buildBranchStockSummary(
+            Branch b,
+            List<Warehouse> whs,
+            Map<Long, List<StockBalance>> warehouseBalances,
+            Map<Long, Product> productMap) {
+
+        BigDecimal bOnHand = BigDecimal.ZERO;
+        BigDecimal bReserved = BigDecimal.ZERO;
+        BigDecimal bAvailable = BigDecimal.ZERO;
+        BigDecimal bValuation = BigDecimal.ZERO;
+        Set<Long> bProductIds = new HashSet<>();
+
+        for (Warehouse w : whs) {
+            List<StockBalance> whBalances = warehouseBalances.getOrDefault(w.getId(), List.of());
+            for (StockBalance sb : whBalances) {
+                BigDecimal onHand = sb.getOnHandQuantity() != null ? sb.getOnHandQuantity() : BigDecimal.ZERO;
+                BigDecimal reserved = sb.getReservedQuantity() != null ? sb.getReservedQuantity() : BigDecimal.ZERO;
+                BigDecimal available = sb.getAvailableQuantity() != null ? sb.getAvailableQuantity() : BigDecimal.ZERO;
+
+                bOnHand = bOnHand.add(onHand);
+                bReserved = bReserved.add(reserved);
+                bAvailable = bAvailable.add(available);
+
+                if (sb.getProductId() != null) {
+                    bProductIds.add(sb.getProductId());
+                    Product p = productMap.get(sb.getProductId());
+                    BigDecimal unitCost = resolveUnitCost(sb.getWeightedAverageCost(), p);
+                    if (unitCost != null && onHand.compareTo(BigDecimal.ZERO) > 0) {
+                        bValuation = bValuation.add(onHand.multiply(unitCost));
+                    }
+                }
+            }
+        }
+
+        bValuation = bValuation.setScale(2, RoundingMode.HALF_UP);
+
+        return new StockSummaryReportDto.BranchStockSummary(
+                b.getId(),
+                b.getName(),
+                b.getCode(),
+                whs.size(),
+                bProductIds.size(),
+                bOnHand,
+                bOnHand,
+                bReserved,
+                bAvailable,
+                bValuation
+        );
+    }
+
+    private BigDecimal resolveUnitCost(BigDecimal weightedAverageCost, Product product) {
+        if (weightedAverageCost != null && weightedAverageCost.compareTo(BigDecimal.ZERO) > 0) {
+            return weightedAverageCost;
+        }
+        if (product != null && product.getPurchaseCost() != null) {
+            return product.getPurchaseCost();
+        }
+        return null;
     }
 
     @Transactional(readOnly = true)
@@ -159,9 +186,9 @@ public class ReportingService {
                 .toList();
 
         Map<Long, Product> productMap = productRepository.findAll().stream()
-                .collect(Collectors.toMap(Product::getId, p -> p));
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
         Map<Long, Warehouse> warehouseMap = warehouses.stream()
-                .collect(Collectors.toMap(Warehouse::getId, w -> w));
+                .collect(Collectors.toMap(Warehouse::getId, Function.identity()));
 
         BigDecimal totalValuation = BigDecimal.ZERO;
         List<StockValuationReportDto.ProductValuationItem> items = new ArrayList<>();
@@ -171,10 +198,8 @@ public class ReportingService {
             Warehouse w = warehouseMap.get(b.getWarehouseId());
 
             BigDecimal onHand = b.getOnHandQuantity();
-            BigDecimal unitCost = b.getWeightedAverageCost();
-            if ((unitCost == null || unitCost.compareTo(BigDecimal.ZERO) <= 0) && p != null && p.getPurchaseCost() != null) {
-                unitCost = p.getPurchaseCost();
-            }
+            BigDecimal unitCost = resolveUnitCost(b.getWeightedAverageCost(), p);
+
             BigDecimal valuation = (onHand != null && unitCost != null)
                     ? onHand.multiply(unitCost).setScale(2, RoundingMode.HALF_UP)
                     : BigDecimal.ZERO;
@@ -185,7 +210,7 @@ public class ReportingService {
                     b.getProductId(),
                     p != null ? p.getSku() : "UNKNOWN",
                     p != null ? p.getName() : "UNKNOWN",
-                    p != null ? p.getCategory().getName() : "UNKNOWN",
+                    p != null && p.getCategory() != null ? p.getCategory().getName() : "UNKNOWN",
                     w != null ? w.getName() : "UNKNOWN",
                     onHand,
                     unitCost,
@@ -203,16 +228,22 @@ public class ReportingService {
 
     @Transactional(readOnly = true)
     public SalesReportDto getSalesReport(Long branchId) {
+        Set<Long> branchWarehouseIds = branchId != null
+                ? warehouseRepository.findByBranchId(branchId).stream()
+                        .map(Warehouse::getId)
+                        .collect(Collectors.toSet())
+                : Set.of();
+
         List<Order> orders = orderRepository.findAll().stream()
                 .filter(o -> o.getStatus() != OrderStatus.CANCELLED)
                 .filter(o -> {
-                    if (branchId == null) return true;
-                    if (o.getCollectionBranchId() != null && o.getCollectionBranchId().equals(branchId)) return true;
-                    if (o.getFulfillmentWarehouseId() != null) {
-                        Warehouse w = warehouseRepository.findById(o.getFulfillmentWarehouseId()).orElse(null);
-                        return w != null && w.getBranch() != null && branchId.equals(w.getBranch().getId());
+                    if (branchId == null) {
+                        return true;
                     }
-                    return false;
+                    if (Objects.equals(o.getCollectionBranchId(), branchId)) {
+                        return true;
+                    }
+                    return o.getFulfillmentWarehouseId() != null && branchWarehouseIds.contains(o.getFulfillmentWarehouseId());
                 })
                 .toList();
 
