@@ -1,5 +1,7 @@
 package com.aser.asertrading.inquiry.service;
 
+import java.math.BigDecimal;
+
 import com.aser.asertrading.common.audit.AuditService;
 import com.aser.asertrading.common.exception.ResourceNotFoundException;
 import com.aser.asertrading.inquiry.domain.CustomerInquiry;
@@ -57,6 +59,7 @@ public class InquiryService {
                 .orElseThrow(() -> new ResourceNotFoundException("Customer inquiry not found with id: " + id));
 
         inquiry.setQuotedPrice(request.quotedPrice());
+        inquiry.setEstimatedCost(request.estimatedCost() != null ? request.estimatedCost() : BigDecimal.ZERO);
         inquiry.setAdminNotes(request.adminNotes());
         inquiry.setStatus(request.status() != null ? request.status() : InquiryStatus.QUOTE_SENT);
         inquiry.setAssignedTo(actor);

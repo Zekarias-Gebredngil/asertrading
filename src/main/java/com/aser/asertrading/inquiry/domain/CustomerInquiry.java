@@ -67,11 +67,23 @@ public class CustomerInquiry {
     @Column(name = "quoted_price", precision = 18, scale = 2)
     private BigDecimal quotedPrice;
 
+    @Column(name = "estimated_cost", precision = 18, scale = 2)
+    private BigDecimal estimatedCost;
+
     @Column(name = "admin_notes", columnDefinition = "TEXT")
     private String adminNotes;
 
     @Column(name = "assigned_to", length = 100)
     private String assignedTo;
+
+    public BigDecimal getNetRevenue() {
+        if (quotedPrice == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal cost = estimatedCost != null ? estimatedCost : BigDecimal.ZERO;
+        BigDecimal net = quotedPrice.subtract(cost);
+        return net.compareTo(BigDecimal.ZERO) > 0 ? net : BigDecimal.ZERO;
+    }
 
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default

@@ -2,6 +2,8 @@ package com.aser.asertrading.reporting.service;
 
 import com.aser.asertrading.catalog.domain.Product;
 import com.aser.asertrading.catalog.repository.ProductRepository;
+import com.aser.asertrading.inquiry.domain.CustomerInquiry;
+import com.aser.asertrading.inquiry.repository.CustomerInquiryRepository;
 import com.aser.asertrading.inventory.domain.StockBalance;
 import com.aser.asertrading.inventory.repository.StockBalanceRepository;
 import com.aser.asertrading.organization.domain.Branch;
@@ -37,6 +39,7 @@ public class ReportingService {
     private final OrderRepository orderRepository;
     private final StockTransferRepository transferRepository;
     private final TransferDiscrepancyRepository discrepancyRepository;
+    private final CustomerInquiryRepository inquiryRepository;
 
     @Transactional(readOnly = true)
     public StockSummaryReportDto getStockSummary() {
@@ -213,10 +216,19 @@ public class ReportingService {
                 })
                 .toList();
 
-        BigDecimal totalRevenue = orders.stream()
+        BigDecimal orderRevenue = orders.stream()
                 .map(Order::getTotalAmount)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Include net quotation revenue (Quoted Price - Cost) from issued customer inquiries
+        BigDecimal quotationRevenue = inquiryRepository.findAll().stream()
+                .filter(inq -> inq.getQuotedPrice() != null && inq.getQuotedPrice().compareTo(BigDecimal.ZERO) > 0)
+                .map(CustomerInquiry::getNetRevenue)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalRevenue = orderRevenue.add(quotationRevenue);
 
         int validOrderCount = orders.size();
         BigDecimal avgOrderValue = validOrderCount > 0
