@@ -24,24 +24,32 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/v1/export")
 @RequiredArgsConstructor
 @Tag(name = "Data Export Engine", description = "Endpoints for downloading Excel (.xlsx) reports across all system contents or requested pages")
 @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'ACCOUNTANT_AUDITOR', 'SALES_OFFICER')")
+// Data export REST controller test
 public class ExportController {
 
     private final ExcelExportService excelExportService;
@@ -52,56 +60,94 @@ public class ExportController {
     private final AuditService auditService;
     private final ReportingService reportingService;
 
-    private static final String EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    private static final MediaType EXCEL_MEDIA_TYPE =
+            MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+    private static final List<String> INVENTORY_HEADERS = List.of(
+            "SKU", "Product Name", "Category", "Branch", "Warehouse",
+            "Physical On Hand", "Reserved Qty", "Available to Sell", "Unit",
+            "Weighted Avg Cost (ETB)", "Total Valuation (ETB)", "Status"
+    );
+
+    private static final List<String> MOVEMENT_HEADERS = List.of(
+            "Timestamp", "Movement Type", "Product SKU", "Product Name", "Branch", "Warehouse",
+            "Quantity Delta", "Unit", "Unit Cost (ETB)", "Total Cost (ETB)", "Reference Type", "Reference ID", "Actor", "Notes"
+    );
+
+    private static final List<String> ORDER_HEADERS = List.of(
+            "Order Number", "Date Created", "Customer Name", "Customer Phone", "Customer Email",
+            "Fulfillment Type", "Branch / Collection", "Delivery Address", "Status",
+            "Subtotal (ETB)", "Delivery Fee (ETB)", "Total Amount (ETB)", "Payment Method", "Payment Status"
+    );
+
+    private static final List<String> PRODUCT_HEADERS = List.of(
+            "SKU", "Product Name", "Category", "Unit", "Base Cost (ETB)", "Selling Price (ETB)",
+            "Pricing Model", "Availability", "Reorder Threshold", "Total Stock On Hand", "Published", "Status"
+    );
+
+    private static final List<String> TRANSFER_HEADERS = List.of(
+            "Transfer #", "Source Warehouse", "Destination Warehouse", "Status",
+            "Items Count", "Requested By", "Approved By", "Dispatched By", "Received By", "Notes"
+    );
+
+    private static final List<String> AUDIT_HEADERS = List.of(
+            "Record ID", "Timestamp", "Actor", "Action", "Entity Module", "Entity ID", "Forensic Details", "IP Address"
+    );
+
+    private static final List<String> SUMMARY_HEADERS = List.of("Metric Category", "Key Indicator", "Value / Count");
+
+    private static final List<String> VALUATION_HEADERS = List.of(
+            "SKU", "Product Name", "Category", "Warehouse", "Physical Units On Hand", "Unit Cost (WAC ETB)", "Total Valuation (ETB)"
+    );
+
+    private static final List<String> BRANCH_HEADERS = List.of(
+            "Branch Name", "Branch Code", "Warehouse Count", "Total On Hand Units", "Total Reserved Units", "Total Available Units", "Branch Valuation (ETB)"
+    );
 
     private List<Object> row(Object... items) {
-        List<Object> r = new ArrayList<>(items.length);
-        for (Object item : items) {
-            r.add(item != null ? item : "");
-        }
-        return r;
+        return Arrays.stream(items)
+                .map(item -> Objects.requireNonNullElse(item, ""))
+                .toList();
     }
 
-    @GetMapping("/inventory")
-    @Operation(summary = "Export inventory balances to Excel (all records or requested page)")
-    public ResponseEntity<byte[]> exportInventory(
-            @RequestParam(required = false) Long warehouseId,
-            @RequestParam(defaultValue = "true") boolean exportAll,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+    private Pageable createExportPageable(boolean exportAll, Pageable pageable) {
+        return exportAll ? Pageable.unpaged() : pageable;
+    }
 
-        Pageable pageable = exportAll ? Pageable.unpaged() : PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "updatedAt"));
-        Page<StockBalanceDto> balancesPage = inventoryService.getBalances(warehouseId, pageable);
+    private String resolveExportFilename(String baseName, boolean exportAll, int page) {
+        String suffix = exportAll ? "_All" : "_Page_" + (page + 1);
+        return excelExportService.generateTimestampedFilename(baseName + suffix);
+    }
 
-        List<String> headers = List.of(
-                "SKU", "Product Name", "Category", "Branch", "Warehouse",
-                "Physical On Hand", "Reserved Qty", "Available to Sell", "Unit",
-                "Weighted Avg Cost (ETB)", "Total Valuation (ETB)", "Status"
-        );
-
-        List<List<Object>> rows = balancesPage.getContent().stream().map(b -> row(
-                b.productSku(),
-                b.productName(),
-                b.categoryName(),
-                b.branchName(),
-                b.warehouseName(),
-                b.onHandQuantity(),
-                b.reservedQuantity(),
-                b.availableQuantity(),
-                b.unitSymbol(),
-                b.weightedAverageCost(),
-                b.totalValuation(),
-                b.status()
-        )).toList();
-
-        byte[] bytes = excelExportService.exportToExcel("Stock Balances", headers, rows);
-        String filename = excelExportService.generateTimestampedFilename("Aser_Inventory_Balances" + (exportAll ? "_All" : "_Page_" + (page + 1)));
-
+    private ResponseEntity<byte[]> createExcelResponse(byte[] bytes, String filename) {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(EXCEL_MEDIA_TYPE))
+                .contentType(EXCEL_MEDIA_TYPE)
                 .body(bytes);
     }
+
+    private String resolveBaseUnit(ProductDto product) {
+        if (product.baseUnitSymbol() != null) {
+            return product.baseUnitSymbol();
+        }
+        if (product.baseUnitName() != null) {
+            return product.baseUnitName();
+        }
+        return "piece";
+    }
+
+    private String enumName(Enum<?> e) {
+        return e != null ? e.name() : "";
+    }
+
+    private int resolveCatalogProductCount(StockValuationReportDto val, StockSummaryReportDto stock) {
+        if (val != null) {
+            return val.productCount();
+        }
+        return stock != null ? stock.totalProducts() : 0;
+    }
+
+
 
     @GetMapping("/movements")
     @Operation(summary = "Export stock movements to Excel (all records or requested page)")
@@ -110,20 +156,14 @@ public class ExportController {
             @RequestParam(required = false) Long warehouseId,
             @RequestParam(required = false) StockMovementType movementType,
             @RequestParam(defaultValue = "true") boolean exportAll,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        Pageable pageable = exportAll ? Pageable.unpaged() : PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<StockMovementDto> movementsPage = inventoryService.getMovements(productId, warehouseId, movementType, pageable);
-
-        List<String> headers = List.of(
-                "Timestamp", "Movement Type", "Product SKU", "Product Name", "Branch", "Warehouse",
-                "Quantity Delta", "Unit", "Unit Cost (ETB)", "Total Cost (ETB)", "Reference Type", "Reference ID", "Actor", "Notes"
-        );
+        Pageable effectivePageable = createExportPageable(exportAll, pageable);
+        Page<StockMovementDto> movementsPage = inventoryService.getMovements(productId, warehouseId, movementType, effectivePageable);
 
         List<List<Object>> rows = movementsPage.getContent().stream().map(m -> row(
                 m.createdAt(),
-                m.movementType() != null ? m.movementType().name() : "",
+                enumName(m.movementType()),
                 m.productSku(),
                 m.productName(),
                 m.branchName(),
@@ -132,19 +172,16 @@ public class ExportController {
                 m.unitSymbol(),
                 m.unitCost(),
                 m.totalCost(),
-                m.referenceType() != null ? m.referenceType().name() : "",
+                enumName(m.referenceType()),
                 m.referenceId(),
                 m.actor(),
                 m.notes()
         )).toList();
 
-        byte[] bytes = excelExportService.exportToExcel("Stock Movements", headers, rows);
-        String filename = excelExportService.generateTimestampedFilename("Aser_Stock_Movements" + (exportAll ? "_All" : "_Page_" + (page + 1)));
+        byte[] bytes = excelExportService.exportToExcel("Stock Movements", MOVEMENT_HEADERS, rows);
+        String filename = resolveExportFilename("Aser_Stock_Movements", exportAll, pageable.getPageNumber());
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(EXCEL_MEDIA_TYPE))
-                .body(bytes);
+        return createExcelResponse(bytes, filename);
     }
 
     @GetMapping("/orders")
@@ -153,17 +190,10 @@ public class ExportController {
             @RequestParam(required = false) OrderStatus status,
             @RequestParam(required = false) Long branchId,
             @RequestParam(defaultValue = "true") boolean exportAll,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        Pageable pageable = exportAll ? Pageable.unpaged() : PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<OrderDto> ordersPage = orderService.getOrders(status, branchId, pageable);
-
-        List<String> headers = List.of(
-                "Order Number", "Date Created", "Customer Name", "Customer Phone", "Customer Email",
-                "Fulfillment Type", "Branch / Collection", "Delivery Address", "Status",
-                "Subtotal (ETB)", "Delivery Fee (ETB)", "Total Amount (ETB)", "Payment Method", "Payment Status"
-        );
+        Pageable effectivePageable = createExportPageable(exportAll, pageable);
+        Page<OrderDto> ordersPage = orderService.getOrders(status, branchId, effectivePageable);
 
         List<List<Object>> rows = ordersPage.getContent().stream().map(o -> row(
                 o.orderNumber(),
@@ -171,10 +201,10 @@ public class ExportController {
                 o.customerName(),
                 o.customerPhone(),
                 o.customerEmail(),
-                o.deliveryType() != null ? o.deliveryType().name() : "",
+                enumName(o.deliveryType()),
                 o.collectionBranchName(),
                 o.deliveryAddress(),
-                o.status() != null ? o.status().name() : "",
+                enumName(o.status()),
                 o.subtotal(),
                 o.deliveryFee(),
                 o.totalAmount(),
@@ -182,13 +212,10 @@ public class ExportController {
                 o.paymentStatus()
         )).toList();
 
-        byte[] bytes = excelExportService.exportToExcel("Customer Orders", headers, rows);
-        String filename = excelExportService.generateTimestampedFilename("Aser_Orders" + (exportAll ? "_All" : "_Page_" + (page + 1)));
+        byte[] bytes = excelExportService.exportToExcel("Customer Orders", ORDER_HEADERS, rows);
+        String filename = resolveExportFilename("Aser_Orders", exportAll, pageable.getPageNumber());
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(EXCEL_MEDIA_TYPE))
-                .body(bytes);
+        return createExcelResponse(bytes, filename);
     }
 
     @GetMapping("/products")
@@ -199,39 +226,30 @@ public class ExportController {
             @RequestParam(required = false) Boolean quotationOnly,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "true") boolean exportAll,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable) {
 
-        Pageable pageable = exportAll ? Pageable.unpaged() : PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "name"));
-        Page<ProductDto> productsPage = productService.searchProducts(status, categoryId, quotationOnly, search, pageable);
-
-        List<String> headers = List.of(
-                "SKU", "Product Name", "Category", "Unit", "Base Cost (ETB)", "Selling Price (ETB)",
-                "Pricing Model", "Availability", "Reorder Threshold", "Total Stock On Hand", "Published", "Status"
-        );
+        Pageable effectivePageable = createExportPageable(exportAll, pageable);
+        Page<ProductDto> productsPage = productService.searchProducts(status, categoryId, quotationOnly, search, effectivePageable);
 
         List<List<Object>> rows = productsPage.getContent().stream().map(p -> row(
                 p.sku(),
                 p.name(),
                 p.categoryName(),
-                p.baseUnitSymbol() != null ? p.baseUnitSymbol() : (p.baseUnitName() != null ? p.baseUnitName() : "piece"),
+                resolveBaseUnit(p),
                 p.purchaseCost(),
                 p.sellingPrice(),
                 p.isQuotationOnly() ? "Quotation" : "Fixed",
-                p.availability() != null ? p.availability().name() : "",
+                enumName(p.availability()),
                 p.reorderThreshold(),
                 p.totalStockOnHand(),
                 p.isPublished() ? "Published" : "Draft",
-                p.status() != null ? p.status().name() : ""
+                enumName(p.status())
         )).toList();
 
-        byte[] bytes = excelExportService.exportToExcel("Products Catalog", headers, rows);
-        String filename = excelExportService.generateTimestampedFilename("Aser_Products_Catalog" + (exportAll ? "_All" : "_Page_" + (page + 1)));
+        byte[] bytes = excelExportService.exportToExcel("Products Catalog", PRODUCT_HEADERS, rows);
+        String filename = resolveExportFilename("Aser_Products_Catalog", exportAll, pageable.getPageNumber());
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(EXCEL_MEDIA_TYPE))
-                .body(bytes);
+        return createExcelResponse(bytes, filename);
     }
 
     @GetMapping("/transfers")
@@ -239,22 +257,16 @@ public class ExportController {
     public ResponseEntity<byte[]> exportTransfers(
             @RequestParam(required = false) TransferStatus status,
             @RequestParam(defaultValue = "true") boolean exportAll,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        Pageable pageable = exportAll ? Pageable.unpaged() : PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<StockTransferDto> transfersPage = transferWorkflowService.getTransfers(status, pageable);
-
-        List<String> headers = List.of(
-                "Transfer #", "Source Warehouse", "Destination Warehouse", "Status",
-                "Items Count", "Requested By", "Approved By", "Dispatched By", "Received By", "Notes"
-        );
+        Pageable effectivePageable = createExportPageable(exportAll, pageable);
+        Page<StockTransferDto> transfersPage = transferWorkflowService.getTransfers(status, effectivePageable);
 
         List<List<Object>> rows = transfersPage.getContent().stream().map(t -> row(
                 t.transferNumber(),
                 t.sourceWarehouseName(),
                 t.destinationWarehouseName(),
-                t.status() != null ? t.status().name() : "",
+                enumName(t.status()),
                 t.items() != null ? t.items().size() : 0,
                 t.requestedBy(),
                 t.approvedBy(),
@@ -263,13 +275,10 @@ public class ExportController {
                 t.notes()
         )).toList();
 
-        byte[] bytes = excelExportService.exportToExcel("Branch Transfers", headers, rows);
-        String filename = excelExportService.generateTimestampedFilename("Aser_Stock_Transfers" + (exportAll ? "_All" : "_Page_" + (page + 1)));
+        byte[] bytes = excelExportService.exportToExcel("Branch Transfers", TRANSFER_HEADERS, rows);
+        String filename = resolveExportFilename("Aser_Stock_Transfers", exportAll, pageable.getPageNumber());
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(EXCEL_MEDIA_TYPE))
-                .body(bytes);
+        return createExcelResponse(bytes, filename);
     }
 
     @GetMapping("/audit-logs")
@@ -277,17 +286,12 @@ public class ExportController {
     public ResponseEntity<byte[]> exportAuditLogs(
             @RequestParam(required = false) String entityType,
             @RequestParam(defaultValue = "true") boolean exportAll,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        Pageable pageable = exportAll ? Pageable.unpaged() : PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<AuditLog> logsPage = (entityType != null && !entityType.isBlank())
-                ? auditService.getLogsByEntity(entityType, pageable)
-                : auditService.getLogs(pageable);
-
-        List<String> headers = List.of(
-                "Record ID", "Timestamp", "Actor", "Action", "Entity Module", "Entity ID", "Forensic Details", "IP Address"
-        );
+        Pageable effectivePageable = createExportPageable(exportAll, pageable);
+        Page<AuditLog> logsPage = StringUtils.hasText(entityType)
+                ? auditService.getLogsByEntity(entityType, effectivePageable)
+                : auditService.getLogs(effectivePageable);
 
         List<List<Object>> rows = logsPage.getContent().stream().map(l -> row(
                 l.getId(),
@@ -300,13 +304,10 @@ public class ExportController {
                 l.getIpAddress()
         )).toList();
 
-        byte[] bytes = excelExportService.exportToExcel("System Audit Trail", headers, rows);
-        String filename = excelExportService.generateTimestampedFilename("Aser_Audit_Logs" + (exportAll ? "_All" : "_Page_" + (page + 1)));
+        byte[] bytes = excelExportService.exportToExcel("System Audit Trail", AUDIT_HEADERS, rows);
+        String filename = resolveExportFilename("Aser_Audit_Logs", exportAll, pageable.getPageNumber());
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(EXCEL_MEDIA_TYPE))
-                .body(bytes);
+        return createExcelResponse(bytes, filename);
     }
 
     @GetMapping("/reports")
@@ -318,18 +319,38 @@ public class ExportController {
         TransferReportDto xfer = reportingService.getTransferReport();
 
         List<SheetData> sheets = new ArrayList<>();
+        sheets.add(buildExecutiveSummarySheet(sales, stock, val, xfer));
 
-        long completed = (sales != null && sales.ordersByStatus() != null)
-                ? sales.ordersByStatus().getOrDefault("DELIVERED", 0L) : 0L;
-        long pending = (sales != null && sales.ordersByStatus() != null)
-                ? (sales.ordersByStatus().getOrDefault("PENDING_PAYMENT", 0L)
-                + sales.ordersByStatus().getOrDefault("PROCESSING", 0L)
-                + sales.ordersByStatus().getOrDefault("READY_FOR_DISPATCH", 0L)) : 0L;
-        long cancelled = (sales != null && sales.ordersByStatus() != null)
-                ? sales.ordersByStatus().getOrDefault("CANCELLED", 0L) : 0L;
+        if (val != null && val.productValuations() != null && !val.productValuations().isEmpty()) {
+            sheets.add(buildStockValuationSheet(val));
+        }
 
-        // Sheet 1: Executive KPI Summary
-        List<String> summaryHeaders = List.of("Metric Category", "Key Indicator", "Value / Count");
+        if (stock != null && stock.branchSummaries() != null && !stock.branchSummaries().isEmpty()) {
+            sheets.add(buildBranchStockSheet(stock));
+        }
+
+        byte[] bytes = excelExportService.exportMultiSheetExcel(sheets);
+        String filename = excelExportService.generateTimestampedFilename("Aser_Commercial_Intelligence_Full_Report");
+
+        return createExcelResponse(bytes, filename);
+    }
+
+    private SheetData buildExecutiveSummarySheet(
+            SalesReportDto sales,
+            StockSummaryReportDto stock,
+            StockValuationReportDto val,
+            TransferReportDto xfer) {
+
+        Map<String, Long> statusMap = (sales != null && sales.ordersByStatus() != null)
+                ? sales.ordersByStatus()
+                : Map.of();
+
+        long completed = statusMap.getOrDefault("DELIVERED", 0L);
+        long pending = statusMap.getOrDefault("PENDING_PAYMENT", 0L)
+                + statusMap.getOrDefault("PROCESSING", 0L)
+                + statusMap.getOrDefault("READY_FOR_DISPATCH", 0L);
+        long cancelled = statusMap.getOrDefault("CANCELLED", 0L);
+
         List<List<Object>> summaryRows = List.of(
                 row("Commercial Sales", "Total Realized Revenue (ETB)", sales != null ? sales.totalRevenueEtb() : BigDecimal.ZERO),
                 row("Commercial Sales", "Average Order Value (ETB)", sales != null ? sales.averageOrderValueEtb() : BigDecimal.ZERO),
@@ -340,7 +361,7 @@ public class ExportController {
                 row("Commercial Sales", "Delivery Orders", sales != null ? sales.deliveryOrdersCount() : 0L),
                 row("Commercial Sales", "Branch Collection Orders", sales != null ? sales.collectionOrdersCount() : 0L),
                 row("Inventory Valuation", "Total Inventory Valuation (ETB)", val != null ? val.totalValuationEtb() : BigDecimal.ZERO),
-                row("Inventory Valuation", "Total Catalog Products", val != null ? val.productCount() : (stock != null ? stock.totalProducts() : 0)),
+                row("Inventory Valuation", "Total Catalog Products", resolveCatalogProductCount(val, stock)),
                 row("Branch Inventory", "Total Physical Units On Hand", stock != null ? stock.totalUnitsOnHand() : BigDecimal.ZERO),
                 row("Branch Inventory", "Operating Branches Count", stock != null && stock.branchSummaries() != null ? stock.branchSummaries().size() : 0),
                 row("Logistics & Transfers", "Total Transfer Shipments", xfer != null ? xfer.totalTransfers() : 0L),
@@ -348,44 +369,35 @@ public class ExportController {
                 row("Logistics & Transfers", "Safely Received Shipments", xfer != null ? xfer.receivedCount() : 0L),
                 row("Logistics & Transfers", "Discrepancy Shipments", xfer != null ? xfer.discrepancyCount() : 0L)
         );
-        sheets.add(new SheetData("Executive Summary", summaryHeaders, summaryRows));
 
-        // Sheet 2: Stock Valuation (WAC)
-        if (val != null && val.productValuations() != null && !val.productValuations().isEmpty()) {
-            List<String> valHeaders = List.of("SKU", "Product Name", "Category", "Warehouse", "Physical Units On Hand", "Unit Cost (WAC ETB)", "Total Valuation (ETB)");
-            List<List<Object>> valRows = val.productValuations().stream().map(item -> row(
-                    item.sku(),
-                    item.productName(),
-                    item.categoryName() != null ? item.categoryName() : "General",
-                    item.warehouseName(),
-                    item.onHandQuantity(),
-                    item.weightedAverageCost(),
-                    item.totalValuation()
-            )).toList();
-            sheets.add(new SheetData("Stock Valuation (WAC)", valHeaders, valRows));
-        }
+        return new SheetData("Executive Summary", SUMMARY_HEADERS, summaryRows);
+    }
 
-        // Sheet 3: Branch Stock Breakdown
-        if (stock != null && stock.branchSummaries() != null && !stock.branchSummaries().isEmpty()) {
-            List<String> branchHeaders = List.of("Branch Name", "Branch Code", "Warehouse Count", "Total On Hand Units", "Total Reserved Units", "Total Available Units", "Branch Valuation (ETB)");
-            List<List<Object>> branchRows = stock.branchSummaries().stream().map(b -> row(
-                    b.branchName(),
-                    b.branchCode(),
-                    b.warehouseCount(),
-                    b.totalOnHand(),
-                    b.totalReserved(),
-                    b.totalAvailable(),
-                    b.totalValuationEtb() != null ? b.totalValuationEtb() : BigDecimal.ZERO
-            )).toList();
-            sheets.add(new SheetData("Branch Stock Summary", branchHeaders, branchRows));
-        }
+    private SheetData buildStockValuationSheet(StockValuationReportDto val) {
+        List<List<Object>> valRows = val.productValuations().stream().map(item -> row(
+                item.sku(),
+                item.productName(),
+                Objects.requireNonNullElse(item.categoryName(), "General"),
+                item.warehouseName(),
+                item.onHandQuantity(),
+                item.weightedAverageCost(),
+                item.totalValuation()
+        )).toList();
 
-        byte[] bytes = excelExportService.exportMultiSheetExcel(sheets);
-        String filename = excelExportService.generateTimestampedFilename("Aser_Commercial_Intelligence_Full_Report");
+        return new SheetData("Stock Valuation (WAC)", VALUATION_HEADERS, valRows);
+    }
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.parseMediaType(EXCEL_MEDIA_TYPE))
-                .body(bytes);
+    private SheetData buildBranchStockSheet(StockSummaryReportDto stock) {
+        List<List<Object>> branchRows = stock.branchSummaries().stream().map(b -> row(
+                b.branchName(),
+                b.branchCode(),
+                b.warehouseCount(),
+                b.totalOnHand(),
+                b.totalReserved(),
+                b.totalAvailable(),
+                Objects.requireNonNullElse(b.totalValuationEtb(), BigDecimal.ZERO)
+        )).toList();
+
+        return new SheetData("Branch Stock Summary", BRANCH_HEADERS, branchRows);
     }
 }
