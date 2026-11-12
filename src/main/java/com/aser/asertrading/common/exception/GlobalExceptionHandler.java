@@ -55,6 +55,7 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
         problem.setTitle("Unauthorized");
         problem.setType(URI.create("https://aser.et/errors/unauthorized"));
+        problem.setProperty("message", ex.getMessage());
         problem.setProperty("timestamp", Instant.now());
         return problem;
     }

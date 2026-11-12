@@ -5,6 +5,7 @@ import com.aser.asertrading.catalog.domain.ProductStatus;
 import com.aser.asertrading.catalog.repository.ProductRepository;
 import com.aser.asertrading.identity.domain.Role;
 import com.aser.asertrading.identity.domain.User;
+import com.aser.asertrading.identity.repository.UserRepository;
 import com.aser.asertrading.identity.service.UserPrincipal;
 import com.aser.asertrading.identity.web.dto.AuthResponse;
 import com.aser.asertrading.identity.web.dto.LoginRequest;
@@ -42,6 +43,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -95,6 +97,12 @@ class AsertradingSystemIntegrationTest {
     private TransferWorkflowService transferWorkflowService;
 
     @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
     private BranchService branchService;
 
     @Test
@@ -122,6 +130,29 @@ class AsertradingSystemIntegrationTest {
         assertThat(accessToken.split("\\.")).hasSize(3);
         assertThat(refreshToken.split("\\.")).hasSize(3);
         assertThat(refreshToken.length()).isEqualTo(accessToken.length());
+    }
+
+    @Test
+    @DisplayName("Inactive user login returns 401 with 'User account is inactive' message")
+    void testInactiveUserLogin() throws Exception {
+        User inactiveUser = User.builder()
+                .username("inactive_test_staff")
+                .email("inactive_test@asertrading.com")
+                .fullName("Inactive Test Staff")
+                .passwordHash(passwordEncoder.encode("Password@123456"))
+                .role(Role.STOREKEEPER)
+                .isActive(false)
+                .build();
+        userRepository.save(inactiveUser);
+
+        LoginRequest loginRequest = new LoginRequest("inactive_test_staff", "Password@123456");
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.detail").value("User account is inactive. Please contact your system administrator."))
+                .andExpect(jsonPath("$.message").value("User account is inactive. Please contact your system administrator."));
     }
 
     @Test

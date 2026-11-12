@@ -15,6 +15,8 @@ import com.aser.asertrading.identity.web.dto.RegisterRequest;
 import com.aser.asertrading.identity.web.dto.UserDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -42,6 +44,7 @@ public class AuthService {
                 .orElseThrow(() -> new UnauthorizedException("Invalid username or password"));
 
         if (!user.isActive()) {
+            auditService.log(request.username(), "LOGIN_FAILURE", "User", user.getId().toString(), "Inactive account login attempt", ipAddress);
             throw new UnauthorizedException("User account is inactive. Please contact your system administrator.");
         }
 
@@ -49,6 +52,9 @@ public class AuthService {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(user.getUsername(), request.password())
             );
+        } catch (DisabledException | LockedException e) {
+            auditService.log(request.username(), "LOGIN_FAILURE", "User", user.getId().toString(), "Inactive account login attempt", ipAddress);
+            throw new UnauthorizedException("User account is inactive. Please contact your system administrator.");
         } catch (Exception e) {
             auditService.log(request.username(), "LOGIN_FAILURE", "User", null, "Failed login attempt", ipAddress);
             throw new UnauthorizedException("Invalid username or password");
@@ -131,7 +137,7 @@ public class AuthService {
         User user = token.getUser();
 
         if (!user.isActive()) {
-            throw new UnauthorizedException("User account is inactive. Please contact system administrator.");
+            throw new UnauthorizedException("User account is inactive. Please contact your system administrator.");
         }
 
         // Rotate refresh token: revoke old one and issue a new one
