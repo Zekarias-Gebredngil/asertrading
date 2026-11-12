@@ -3,11 +3,14 @@ package com.aser.asertrading.identity.service;
 import com.aser.asertrading.common.audit.AuditService;
 import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.common.exception.UnauthorizedException;
+import com.aser.asertrading.identity.domain.RefreshToken;
 import com.aser.asertrading.identity.domain.Role;
 import com.aser.asertrading.identity.domain.User;
 import com.aser.asertrading.identity.repository.UserRepository;
 import com.aser.asertrading.identity.web.dto.AuthResponse;
+import com.aser.asertrading.identity.web.dto.ChangePasswordRequest;
 import com.aser.asertrading.identity.web.dto.LoginRequest;
+import com.aser.asertrading.identity.web.dto.RefreshTokenRequest;
 import com.aser.asertrading.identity.web.dto.RegisterRequest;
 import com.aser.asertrading.identity.web.dto.UserDto;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
     private final AuthenticationManager authenticationManager;
     private final AuditService auditService;
 
@@ -57,12 +61,15 @@ public class AuthService {
         claims.put("branchId", user.getAssignedBranchId());
         claims.put("email", user.getEmail());
 
-        String token = jwtService.generateToken(principal, claims);
+        String accessToken = jwtService.generateToken(principal, claims);
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
 
         auditService.log(user.getUsername(), "LOGIN_SUCCESS", "User", user.getId().toString(), "User logged in successfully", ipAddress);
 
         return AuthResponse.of(
-                token,
+                accessToken,
+                refreshToken.getToken(),
+                jwtService.getAccessTokenExpirationMs(),
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
@@ -97,14 +104,18 @@ public class AuthService {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", user.getId());
         claims.put("role", user.getRole().name());
+        claims.put("branchId", user.getAssignedBranchId());
         claims.put("email", user.getEmail());
 
-        String token = jwtService.generateToken(principal, claims);
+        String accessToken = jwtService.generateToken(principal, claims);
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(user);
 
         auditService.log(user.getUsername(), "REGISTER_CUSTOMER", "User", user.getId().toString(), "Customer registered", ipAddress);
 
         return AuthResponse.of(
-                token,
+                accessToken,
+                refreshToken.getToken(),
+                jwtService.getAccessTokenExpirationMs(),
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
@@ -112,6 +123,55 @@ public class AuthService {
                 user.getRole(),
                 null
         );
+    }
+
+    @Transactional
+    public AuthResponse refreshToken(RefreshTokenRequest request, String ipAddress) {
+        RefreshToken token = refreshTokenService.verifyToken(request.refreshToken());
+        User user = token.getUser();
+
+        if (!user.isActive()) {
+            throw new UnauthorizedException("User account is inactive. Please contact system administrator.");
+        }
+
+        // Rotate refresh token: revoke old one and issue a new one
+        RefreshToken newRefreshToken = refreshTokenService.rotateRefreshToken(token);
+
+        UserPrincipal principal = new UserPrincipal(user);
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("userId", user.getId());
+        claims.put("role", user.getRole().name());
+        claims.put("branchId", user.getAssignedBranchId());
+        claims.put("email", user.getEmail());
+
+        String newAccessToken = jwtService.generateToken(principal, claims);
+
+        auditService.log(user.getUsername(), "TOKEN_REFRESH", "User", user.getId().toString(), "Access token refreshed", ipAddress);
+
+        return AuthResponse.of(
+                newAccessToken,
+                newRefreshToken.getToken(),
+                jwtService.getAccessTokenExpirationMs(),
+                user.getId(),
+                user.getUsername(),
+                user.getEmail(),
+                user.getFullName(),
+                user.getRole(),
+                user.getAssignedBranchId()
+        );
+    }
+
+    @Transactional
+    public void logout(RefreshTokenRequest request, String ipAddress) {
+        if (request != null && request.refreshToken() != null && !request.refreshToken().isBlank()) {
+            refreshTokenService.revokeToken(request.refreshToken());
+        }
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getPrincipal()))
+                ? auth.getName()
+                : "UNKNOWN";
+        auditService.log(username, "LOGOUT", "User", null, "User logged out successfully", ipAddress);
     }
 
     @Transactional(readOnly = true)
@@ -129,7 +189,7 @@ public class AuthService {
     }
 
     @Transactional
-    public void changePassword(String username, com.aser.asertrading.identity.web.dto.ChangePasswordRequest request, String ipAddress) {
+    public void changePassword(String username, ChangePasswordRequest request, String ipAddress) {
         if (username == null || username.isBlank() || "anonymousUser".equals(username)) {
             throw new UnauthorizedException("User must be logged in to change password.");
         }
@@ -144,8 +204,10 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
         userRepository.save(user);
 
+        // Invalidate all existing refresh tokens for security
+        refreshTokenService.revokeAllUserTokens(user);
+
         auditService.log(username, "CHANGE_PASSWORD", "User", user.getId().toString(),
                 "User changed their password successfully", ipAddress);
     }
 }
-

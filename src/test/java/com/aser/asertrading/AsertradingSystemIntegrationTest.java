@@ -8,6 +8,7 @@ import com.aser.asertrading.identity.domain.User;
 import com.aser.asertrading.identity.service.UserPrincipal;
 import com.aser.asertrading.identity.web.dto.AuthResponse;
 import com.aser.asertrading.identity.web.dto.LoginRequest;
+import com.aser.asertrading.identity.web.dto.RefreshTokenRequest;
 import com.aser.asertrading.inventory.domain.ReferenceType;
 import com.aser.asertrading.inventory.repository.StockBalanceRepository;
 import com.aser.asertrading.inventory.service.InventoryService;
@@ -107,11 +108,81 @@ class AsertradingSystemIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.data.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.data.expiresIn").isNumber())
                 .andExpect(jsonPath("$.data.role").value("SYSTEM_ADMINISTRATOR"))
                 .andReturn();
 
         String responseBody = result.getResponse().getContentAsString();
-        assertThat(responseBody).contains("accessToken");
+        com.fasterxml.jackson.databind.JsonNode loginNode = objectMapper.readTree(responseBody);
+        String accessToken = loginNode.path("data").path("accessToken").asText();
+        String refreshToken = loginNode.path("data").path("refreshToken").asText();
+        assertThat(accessToken).isNotEmpty();
+        assertThat(refreshToken).isNotEmpty();
+        assertThat(accessToken.split("\\.")).hasSize(3);
+        assertThat(refreshToken.split("\\.")).hasSize(3);
+        assertThat(refreshToken.length()).isEqualTo(accessToken.length());
+    }
+
+    @Test
+    @DisplayName("Refresh token obtains new access token and implements rotation")
+    void testRefreshTokenRotationAndRevocation() throws Exception {
+        LoginRequest loginRequest = new LoginRequest("admin", "Admin@123456");
+
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.refreshToken").isNotEmpty())
+                .andReturn();
+
+        String initialResponse = loginResult.getResponse().getContentAsString();
+        com.fasterxml.jackson.databind.JsonNode rootNode = objectMapper.readTree(initialResponse);
+        String initialAccessToken = rootNode.path("data").path("accessToken").asText();
+        String initialRefreshToken = rootNode.path("data").path("refreshToken").asText();
+        assertThat(initialRefreshToken.split("\\.")).hasSize(3);
+        assertThat(initialRefreshToken.length()).isEqualTo(initialAccessToken.length());
+
+        // 1. Refresh using initial refresh token
+        RefreshTokenRequest refreshReq = new RefreshTokenRequest(initialRefreshToken);
+        MvcResult refreshResult = mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(refreshReq)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.data.refreshToken").isNotEmpty())
+                .andExpect(jsonPath("$.data.expiresIn").isNumber())
+                .andReturn();
+
+        com.fasterxml.jackson.databind.JsonNode refreshNode = objectMapper.readTree(refreshResult.getResponse().getContentAsString());
+        String rotatedRefreshToken = refreshNode.path("data").path("refreshToken").asText();
+        String newAccessToken = refreshNode.path("data").path("accessToken").asText();
+
+        // Rotated refresh token must be a JWT matching access token pattern and length
+        assertThat(rotatedRefreshToken.split("\\.")).hasSize(3);
+        assertThat(rotatedRefreshToken.length()).isEqualTo(newAccessToken.length());
+
+        // Rotated refresh token must be different from initial
+        assertThat(rotatedRefreshToken).isNotEqualTo(initialRefreshToken);
+
+        // 2. Replaying the old (now revoked) refresh token must fail with 401 Unauthorized
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(initialRefreshToken))))
+                .andExpect(status().isUnauthorized());
+
+        // 3. Logout using the rotated refresh token
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(rotatedRefreshToken))))
+                .andExpect(status().isOk());
+
+        // 4. Using the logged-out refresh token must now fail with 401 Unauthorized
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new RefreshTokenRequest(rotatedRefreshToken))))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

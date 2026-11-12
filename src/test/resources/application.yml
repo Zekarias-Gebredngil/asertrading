@@ -18,7 +18,9 @@ spring:
 app:
   jwt:
     secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-    expiration-ms: 3600000
+    access-expiration-ms: 900000
+    refresh-expiration-ms: 604800000
+    expiration-ms: 900000
   currency: ETB
   cors:
     allowed-origins: http://localhost:4200,http://192.168.0.208:4200

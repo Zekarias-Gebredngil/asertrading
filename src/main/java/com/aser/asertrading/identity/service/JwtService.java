@@ -12,22 +12,34 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 
 @Service
 public class JwtService {
 
     private final SecretKey signingKey;
-    private final long jwtExpirationMs;
+    private final long accessTokenExpirationMs;
+    private final long refreshTokenExpirationMs;
 
     public JwtService(
             @Value("${app.jwt.secret:}") String secret,
-            @Value("${app.jwt.expiration-ms:86400000}") long expirationMs) {
+            @Value("${app.jwt.access-expiration-ms:${app.jwt.expiration-ms:900000}}") long accessExpirationMs,
+            @Value("${app.jwt.refresh-expiration-ms:604800000}") long refreshExpirationMs) {
         if (secret == null || secret.isBlank()) {
             throw new IllegalStateException("JWT secret key is not configured. Please set JWT_SECRET in your environment or .env file.");
         }
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.jwtExpirationMs = expirationMs;
+        this.accessTokenExpirationMs = accessExpirationMs;
+        this.refreshTokenExpirationMs = refreshExpirationMs;
+    }
+
+    public long getAccessTokenExpirationMs() {
+        return accessTokenExpirationMs;
+    }
+
+    public long getRefreshTokenExpirationMs() {
+        return refreshTokenExpirationMs;
     }
 
     public String extractUsername(String token) {
@@ -42,15 +54,31 @@ public class JwtService {
     public String generateToken(UserDetails userDetails, Map<String, Object> extraClaims) {
         return Jwts.builder()
                 .claims(extraClaims)
+                .id(UUID.randomUUID().toString())
                 .subject(userDetails.getUsername())
                 .issuedAt(new Date(System.currentTimeMillis()))
-                .expiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
+                .expiration(new Date(System.currentTimeMillis() + accessTokenExpirationMs))
                 .signWith(signingKey)
                 .compact();
     }
 
     public String generateToken(UserDetails userDetails) {
         return generateToken(userDetails, new HashMap<>());
+    }
+
+    public String generateRefreshToken(UserDetails userDetails, Map<String, Object> extraClaims) {
+        return Jwts.builder()
+                .claims(extraClaims)
+                .id(UUID.randomUUID().toString())
+                .subject(userDetails.getUsername())
+                .issuedAt(new Date(System.currentTimeMillis()))
+                .expiration(new Date(System.currentTimeMillis() + refreshTokenExpirationMs))
+                .signWith(signingKey)
+                .compact();
+    }
+
+    public String generateRefreshToken(UserDetails userDetails) {
+        return generateRefreshToken(userDetails, new HashMap<>());
     }
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
@@ -74,4 +102,3 @@ public class JwtService {
                 .getPayload();
     }
 }
-
