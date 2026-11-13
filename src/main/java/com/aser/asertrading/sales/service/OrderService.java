@@ -7,7 +7,9 @@ import com.aser.asertrading.common.audit.AuditService;
 import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.common.exception.InsufficientStockException;
 import com.aser.asertrading.common.exception.ResourceNotFoundException;
+import com.aser.asertrading.identity.domain.Role;
 import com.aser.asertrading.identity.service.SecurityBranchService;
+import com.aser.asertrading.identity.service.UserPrincipal;
 import com.aser.asertrading.inventory.domain.StockBalance;
 import com.aser.asertrading.inventory.repository.StockBalanceRepository;
 import com.aser.asertrading.inventory.service.StockReservationService;
@@ -15,11 +17,23 @@ import com.aser.asertrading.organization.domain.Branch;
 import com.aser.asertrading.organization.domain.Warehouse;
 import com.aser.asertrading.organization.repository.BranchRepository;
 import com.aser.asertrading.organization.repository.WarehouseRepository;
-import com.aser.asertrading.sales.domain.*;
+import com.aser.asertrading.sales.domain.Customer;
+import com.aser.asertrading.sales.domain.DeliveryType;
+import com.aser.asertrading.sales.domain.Order;
+import com.aser.asertrading.sales.domain.OrderItem;
+import com.aser.asertrading.sales.domain.OrderStatus;
+import com.aser.asertrading.sales.domain.OrderStatusHistory;
+import com.aser.asertrading.sales.domain.Payment;
+import com.aser.asertrading.sales.domain.PaymentStatus;
 import com.aser.asertrading.sales.repository.CustomerRepository;
 import com.aser.asertrading.sales.repository.OrderRepository;
 import com.aser.asertrading.sales.repository.PaymentRepository;
-import com.aser.asertrading.sales.web.dto.*;
+import com.aser.asertrading.sales.web.dto.CheckoutQuoteRequest;
+import com.aser.asertrading.sales.web.dto.CheckoutQuoteResponse;
+import com.aser.asertrading.sales.web.dto.CreateOrderRequest;
+import com.aser.asertrading.sales.web.dto.OrderDto;
+import com.aser.asertrading.sales.web.dto.OrderItemDto;
+import com.aser.asertrading.sales.web.dto.OrderStatusHistoryDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -34,6 +48,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -269,7 +284,25 @@ public class OrderService {
     public OrderDto updateOrderStatus(Long orderId, OrderStatus newStatus, String comment, String paymentStatusStr, String actor) {
         Order order = getOrderEntity(orderId);
 
-        if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
+        Optional<UserPrincipal> principalOpt = securityBranchService.getCurrentUserPrincipal();
+        if (principalOpt.isPresent()) {
+            UserPrincipal principal = principalOpt.get();
+            if (principal.getRole() == Role.CUSTOMER) {
+                boolean isOwner = (order.getCustomerId() != null && order.getCustomerId().equals(principal.getId()))
+                        || (order.getCustomerEmail() != null && order.getCustomerEmail().equalsIgnoreCase(principal.getEmail()));
+                if (!isOwner) {
+                    throw new AccessDeniedException("Access denied: You do not have permission to modify this order.");
+                }
+                if (newStatus != OrderStatus.CANCELLED) {
+                    throw new AccessDeniedException("Access denied: Customers are only permitted to cancel pending orders.");
+                }
+                if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+                    throw new BadRequestException("Order cannot be cancelled because it is currently " + order.getStatus() + ".");
+                }
+            } else if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
+                throw new AccessDeniedException("Access denied: You do not have permission to manage orders for another branch.");
+            }
+        } else if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
             throw new AccessDeniedException("Access denied: You do not have permission to manage orders for another branch.");
         }
 

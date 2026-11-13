@@ -16,6 +16,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -35,7 +36,11 @@ public class ReturnController {
             @Valid @RequestBody CreateReturnRequest request,
             Authentication auth) {
 
-        String actor = auth != null ? auth.getName() : "CUSTOMER";
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            throw new AccessDeniedException("Authentication required to request a return.");
+        }
+
+        String actor = auth.getName();
         OrderReturnDto returnDto = returnService.requestReturn(orderId, request, actor);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Return request submitted", returnDto));
     }

@@ -5,6 +5,7 @@ import com.aser.asertrading.catalog.repository.ProductRepository;
 import com.aser.asertrading.common.audit.AuditService;
 import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.common.exception.ResourceNotFoundException;
+import com.aser.asertrading.identity.service.SecurityBranchService;
 import com.aser.asertrading.inventory.domain.ReferenceType;
 import com.aser.asertrading.inventory.domain.StockBalance;
 import com.aser.asertrading.inventory.domain.StockMovement;
@@ -14,11 +15,25 @@ import com.aser.asertrading.inventory.repository.StockMovementRepository;
 import com.aser.asertrading.inventory.service.WeightedAverageCostService;
 import com.aser.asertrading.organization.domain.Warehouse;
 import com.aser.asertrading.organization.repository.WarehouseRepository;
-import com.aser.asertrading.procurement.domain.*;
+import com.aser.asertrading.procurement.domain.GoodsReceipt;
+import com.aser.asertrading.procurement.domain.GoodsReceiptItem;
+import com.aser.asertrading.procurement.domain.POStatus;
+import com.aser.asertrading.procurement.domain.PurchaseOrder;
+import com.aser.asertrading.procurement.domain.PurchaseOrderItem;
+import com.aser.asertrading.procurement.domain.Supplier;
 import com.aser.asertrading.procurement.repository.GoodsReceiptRepository;
 import com.aser.asertrading.procurement.repository.PurchaseOrderRepository;
 import com.aser.asertrading.procurement.repository.SupplierRepository;
-import com.aser.asertrading.procurement.web.dto.*;
+import com.aser.asertrading.procurement.web.dto.CreatePORequest;
+import com.aser.asertrading.procurement.web.dto.CreateSupplierRequest;
+import com.aser.asertrading.procurement.web.dto.GoodsReceiptDto;
+import com.aser.asertrading.procurement.web.dto.GoodsReceiptItemDto;
+import com.aser.asertrading.procurement.web.dto.GoodsReceiptItemRequest;
+import com.aser.asertrading.procurement.web.dto.GoodsReceiptRequest;
+import com.aser.asertrading.procurement.web.dto.POItemDto;
+import com.aser.asertrading.procurement.web.dto.POItemRequest;
+import com.aser.asertrading.procurement.web.dto.PurchaseOrderDto;
+import com.aser.asertrading.procurement.web.dto.SupplierDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -46,6 +61,7 @@ public class ProcurementService {
     private final WarehouseRepository warehouseRepository;
     private final WeightedAverageCostService costService;
     private final AuditService auditService;
+    private final SecurityBranchService securityBranchService;
 
     // Supplier operations
     @Transactional(readOnly = true)
@@ -159,6 +175,8 @@ public class ProcurementService {
 
         Warehouse warehouse = warehouseRepository.findById(po.getWarehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Destination warehouse not found with id: " + po.getWarehouseId()));
+
+        securityBranchService.validateWarehouseAccess(warehouse.getId());
 
         String grnNumber = "GRN-" + System.currentTimeMillis() % 10000000;
 

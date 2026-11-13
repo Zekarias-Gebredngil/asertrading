@@ -13,6 +13,7 @@ import com.aser.asertrading.sales.web.dto.AddToCartRequest;
 import com.aser.asertrading.sales.web.dto.CartDto;
 import com.aser.asertrading.sales.web.dto.CartItemDto;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,16 +34,21 @@ public class CartService {
     private final ProductRepository productRepository;
 
     @Transactional
-    public CartDto getOrCreateCart(Long customerId, String sessionId) {
+    public Cart getOrCreateCartEntity(Long customerId, String sessionId) {
         Cart cart = findCart(customerId, sessionId);
         if (cart == null) {
             cart = Cart.builder()
                     .customerId(customerId)
-                    .sessionId(sessionId != null ? sessionId : UUID.randomUUID().toString())
+                    .sessionId(sessionId != null && !sessionId.isBlank() ? sessionId : UUID.randomUUID().toString())
                     .build();
             cart = cartRepository.save(cart);
         }
-        return mapToCartDto(cart);
+        return cart;
+    }
+
+    @Transactional
+    public CartDto getOrCreateCart(Long customerId, String sessionId) {
+        return mapToCartDto(getOrCreateCartEntity(customerId, sessionId));
     }
 
     @Transactional
@@ -85,8 +91,13 @@ public class CartService {
 
     @Transactional
     public CartDto updateCartItem(Long itemId, BigDecimal quantity, Long customerId, String sessionId) {
+        Cart cart = getOrCreateCartEntity(customerId, sessionId);
         CartItem item = cartItemRepository.findById(itemId)
                 .orElseThrow(() -> new ResourceNotFoundException("Cart item not found with id: " + itemId));
+
+        if (!item.getCart().getId().equals(cart.getId())) {
+            throw new AccessDeniedException("Access denied: Item does not belong to your active cart.");
+        }
 
         if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
             cartItemRepository.delete(item);
@@ -98,13 +109,21 @@ public class CartService {
             cartItemRepository.save(item);
         }
 
-        return getOrCreateCart(customerId, sessionId);
+        return mapToCartDto(cart);
     }
 
     @Transactional
     public CartDto removeCartItem(Long itemId, Long customerId, String sessionId) {
-        cartItemRepository.deleteById(itemId);
-        return getOrCreateCart(customerId, sessionId);
+        Cart cart = getOrCreateCartEntity(customerId, sessionId);
+        CartItem item = cartItemRepository.findById(itemId)
+                .orElseThrow(() -> new ResourceNotFoundException("Cart item not found with id: " + itemId));
+
+        if (!item.getCart().getId().equals(cart.getId())) {
+            throw new AccessDeniedException("Access denied: Item does not belong to your active cart.");
+        }
+
+        cartItemRepository.delete(item);
+        return mapToCartDto(cart);
     }
 
     @Transactional

@@ -2,10 +2,15 @@ package com.aser.asertrading.sales.web;
 
 import com.aser.asertrading.common.dto.ApiResponse;
 import com.aser.asertrading.common.dto.PagedResponse;
+import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.identity.service.UserPrincipal;
 import com.aser.asertrading.sales.domain.OrderStatus;
 import com.aser.asertrading.sales.service.OrderService;
-import com.aser.asertrading.sales.web.dto.*;
+import com.aser.asertrading.sales.web.dto.CheckoutQuoteRequest;
+import com.aser.asertrading.sales.web.dto.CheckoutQuoteResponse;
+import com.aser.asertrading.sales.web.dto.CreateOrderRequest;
+import com.aser.asertrading.sales.web.dto.OrderDto;
+import com.aser.asertrading.sales.web.dto.UpdateOrderStatusRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -59,18 +64,18 @@ public class OrderController {
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
             Authentication authentication) {
 
-        if (authentication != null && authentication.getPrincipal() instanceof UserPrincipal principal) {
-            boolean isStaff = principal.getAuthorities().stream()
-                    .anyMatch(a -> !a.getAuthority().equals("ROLE_CUSTOMER"));
-
-            if (isStaff) {
-                return ApiResponse.success(PagedResponse.of(orderService.getOrders(status, branchId, pageable)));
-            } else {
-                return ApiResponse.success(PagedResponse.of(orderService.getCustomerOrders(principal.getEmail(), pageable)));
-            }
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+            throw new AccessDeniedException("Authentication required to view orders.");
         }
 
-        return ApiResponse.success(PagedResponse.of(orderService.getOrders(status, branchId, pageable)));
+        boolean isStaff = principal.getAuthorities().stream()
+                .anyMatch(a -> !a.getAuthority().equals("ROLE_CUSTOMER"));
+
+        if (isStaff) {
+            return ApiResponse.success(PagedResponse.of(orderService.getOrders(status, branchId, pageable)));
+        } else {
+            return ApiResponse.success(PagedResponse.of(orderService.getCustomerOrders(principal.getEmail(), pageable)));
+        }
     }
 
     @GetMapping("/orders/{id}")
@@ -114,8 +119,26 @@ public class OrderController {
             @RequestParam(defaultValue = "Customer cancellation") String reason,
             Authentication auth) {
 
-        String actor = auth != null ? auth.getName() : "ANONYMOUS";
-        return ApiResponse.success("Order cancelled", orderService.cancelOrder(id, reason, actor));
+        if (auth == null || !(auth.getPrincipal() instanceof UserPrincipal principal)) {
+            throw new AccessDeniedException("Authentication required to cancel an order.");
+        }
+
+        OrderDto order = orderService.getOrderById(id);
+        boolean isStaff = principal.getAuthorities().stream()
+                .anyMatch(a -> !a.getAuthority().equals("ROLE_CUSTOMER"));
+
+        if (!isStaff) {
+            boolean isOwner = (order.customerId() != null && order.customerId().equals(principal.getId()))
+                    || (order.customerEmail() != null && order.customerEmail().equalsIgnoreCase(principal.getEmail()));
+            if (!isOwner) {
+                throw new AccessDeniedException("Access denied: You do not have permission to cancel this order.");
+            }
+            if (order.status() != OrderStatus.PENDING_PAYMENT) {
+                throw new BadRequestException("Order cannot be cancelled because it is already " + order.status() + ".");
+            }
+        }
+
+        return ApiResponse.success("Order cancelled", orderService.cancelOrder(id, reason, auth.getName()));
     }
 
     @PatchMapping("/orders/{id}/status")
