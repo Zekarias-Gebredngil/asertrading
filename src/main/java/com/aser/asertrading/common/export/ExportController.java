@@ -47,9 +47,8 @@ import java.util.Objects;
 @RestController
 @RequestMapping("/api/v1/export")
 @RequiredArgsConstructor
-@Tag(name = "Data Export Engine", description = "Endpoints for downloading Excel (.xlsx) reports across all system contents or requested pages")
+@Tag(name = "Data Export Engine", description = "Endpoints for downloading Excel reports")
 @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'ACCOUNTANT_AUDITOR', 'SALES_OFFICER')")
-// Data export REST controller test
 public class ExportController {
 
     private final ExcelExportService excelExportService;
@@ -63,30 +62,38 @@ public class ExportController {
     private static final MediaType EXCEL_MEDIA_TYPE =
             MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
+    private static final String HDR_PRODUCT_NAME = "Product Name";
+    private static final String HDR_CATEGORY = "Category";
+    private static final String HDR_WAREHOUSE = "Warehouse";
+    private static final String HDR_UNIT = "Unit";
+    private static final String HDR_STATUS = "Status";
+    private static final String CAT_COMMERCIAL_SALES = "Commercial Sales";
+    private static final String CAT_LOGISTICS_TRANSFERS = "Logistics & Transfers";
+
     private static final List<String> INVENTORY_HEADERS = List.of(
-            "SKU", "Product Name", "Category", "Branch", "Warehouse",
-            "Physical On Hand", "Reserved Qty", "Available to Sell", "Unit",
-            "Weighted Avg Cost (ETB)", "Total Valuation (ETB)", "Status"
+            "SKU", HDR_PRODUCT_NAME, HDR_CATEGORY, "Branch", HDR_WAREHOUSE,
+            "Physical On Hand", "Reserved Qty", "Available to Sell", HDR_UNIT,
+            "Weighted Avg Cost (ETB)", "Total Valuation (ETB)", HDR_STATUS
     );
 
     private static final List<String> MOVEMENT_HEADERS = List.of(
-            "Timestamp", "Movement Type", "Product SKU", "Product Name", "Branch", "Warehouse",
-            "Quantity Delta", "Unit", "Unit Cost (ETB)", "Total Cost (ETB)", "Reference Type", "Reference ID", "Actor", "Notes"
+            "Timestamp", "Movement Type", "Product SKU", HDR_PRODUCT_NAME, "Branch", HDR_WAREHOUSE,
+            "Quantity Delta", HDR_UNIT, "Unit Cost (ETB)", "Total Cost (ETB)", "Reference Type", "Reference ID", "Actor", "Notes"
     );
 
     private static final List<String> ORDER_HEADERS = List.of(
             "Order Number", "Date Created", "Customer Name", "Customer Phone", "Customer Email",
-            "Fulfillment Type", "Branch / Collection", "Delivery Address", "Status",
+            "Fulfillment Type", "Branch / Collection", "Delivery Address", HDR_STATUS,
             "Subtotal (ETB)", "Delivery Fee (ETB)", "Total Amount (ETB)", "Payment Method", "Payment Status"
     );
 
     private static final List<String> PRODUCT_HEADERS = List.of(
-            "SKU", "Product Name", "Category", "Unit", "Base Cost (ETB)", "Selling Price (ETB)",
-            "Pricing Model", "Availability", "Reorder Threshold", "Total Stock On Hand", "Published", "Status"
+            "SKU", HDR_PRODUCT_NAME, HDR_CATEGORY, HDR_UNIT, "Base Cost (ETB)", "Selling Price (ETB)",
+            "Pricing Model", "Availability", "Reorder Threshold", "Total Stock On Hand", "Published", HDR_STATUS
     );
 
     private static final List<String> TRANSFER_HEADERS = List.of(
-            "Transfer #", "Source Warehouse", "Destination Warehouse", "Status",
+            "Transfer #", "Source Warehouse", "Destination Warehouse", HDR_STATUS,
             "Items Count", "Requested By", "Approved By", "Dispatched By", "Received By", "Notes"
     );
 
@@ -97,7 +104,7 @@ public class ExportController {
     private static final List<String> SUMMARY_HEADERS = List.of("Metric Category", "Key Indicator", "Value / Count");
 
     private static final List<String> VALUATION_HEADERS = List.of(
-            "SKU", "Product Name", "Category", "Warehouse", "Physical Units On Hand", "Unit Cost (WAC ETB)", "Total Valuation (ETB)"
+            "SKU", HDR_PRODUCT_NAME, HDR_CATEGORY, HDR_WAREHOUSE, "Physical Units On Hand", "Unit Cost (WAC ETB)", "Total Valuation (ETB)"
     );
 
     private static final List<String> BRANCH_HEADERS = List.of(
@@ -148,6 +155,37 @@ public class ExportController {
     }
 
 
+
+    @GetMapping("/inventory")
+    @Operation(summary = "Export inventory balances to Excel (all records or requested page)")
+    public ResponseEntity<byte[]> exportInventory(
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(defaultValue = "true") boolean exportAll,
+            @PageableDefault(size = 20, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+
+        Pageable effectivePageable = createExportPageable(exportAll, pageable);
+        Page<StockBalanceDto> balancesPage = inventoryService.getBalances(warehouseId, effectivePageable);
+
+        List<List<Object>> rows = balancesPage.getContent().stream().map(b -> row(
+                b.productSku(),
+                b.productName(),
+                b.categoryName(),
+                b.branchName(),
+                b.warehouseName(),
+                b.onHandQuantity(),
+                b.reservedQuantity(),
+                b.availableQuantity(),
+                b.unitSymbol(),
+                b.weightedAverageCost(),
+                b.totalValuation(),
+                b.status()
+        )).toList();
+
+        byte[] bytes = excelExportService.exportToExcel("Stock Balances", INVENTORY_HEADERS, rows);
+        String filename = resolveExportFilename("Aser_Inventory_Balances", exportAll, pageable.getPageNumber());
+
+        return createExcelResponse(bytes, filename);
+    }
 
     @GetMapping("/movements")
     @Operation(summary = "Export stock movements to Excel (all records or requested page)")
@@ -352,22 +390,22 @@ public class ExportController {
         long cancelled = statusMap.getOrDefault("CANCELLED", 0L);
 
         List<List<Object>> summaryRows = List.of(
-                row("Commercial Sales", "Total Realized Revenue (ETB)", sales != null ? sales.totalRevenueEtb() : BigDecimal.ZERO),
-                row("Commercial Sales", "Average Order Value (ETB)", sales != null ? sales.averageOrderValueEtb() : BigDecimal.ZERO),
-                row("Commercial Sales", "Total Orders Processed", sales != null ? sales.totalOrders() : 0L),
-                row("Commercial Sales", "Completed & Delivered Orders", completed),
-                row("Commercial Sales", "Pending Fulfillment Orders", pending),
-                row("Commercial Sales", "Cancelled / Rejected Orders", cancelled),
-                row("Commercial Sales", "Delivery Orders", sales != null ? sales.deliveryOrdersCount() : 0L),
-                row("Commercial Sales", "Branch Collection Orders", sales != null ? sales.collectionOrdersCount() : 0L),
+                row(CAT_COMMERCIAL_SALES, "Total Realized Revenue (ETB)", sales != null ? sales.totalRevenueEtb() : BigDecimal.ZERO),
+                row(CAT_COMMERCIAL_SALES, "Average Order Value (ETB)", sales != null ? sales.averageOrderValueEtb() : BigDecimal.ZERO),
+                row(CAT_COMMERCIAL_SALES, "Total Orders Processed", sales != null ? sales.totalOrders() : 0L),
+                row(CAT_COMMERCIAL_SALES, "Completed & Delivered Orders", completed),
+                row(CAT_COMMERCIAL_SALES, "Pending Fulfillment Orders", pending),
+                row(CAT_COMMERCIAL_SALES, "Cancelled / Rejected Orders", cancelled),
+                row(CAT_COMMERCIAL_SALES, "Delivery Orders", sales != null ? sales.deliveryOrdersCount() : 0L),
+                row(CAT_COMMERCIAL_SALES, "Branch Collection Orders", sales != null ? sales.collectionOrdersCount() : 0L),
                 row("Inventory Valuation", "Total Inventory Valuation (ETB)", val != null ? val.totalValuationEtb() : BigDecimal.ZERO),
                 row("Inventory Valuation", "Total Catalog Products", resolveCatalogProductCount(val, stock)),
                 row("Branch Inventory", "Total Physical Units On Hand", stock != null ? stock.totalUnitsOnHand() : BigDecimal.ZERO),
                 row("Branch Inventory", "Operating Branches Count", stock != null && stock.branchSummaries() != null ? stock.branchSummaries().size() : 0),
-                row("Logistics & Transfers", "Total Transfer Shipments", xfer != null ? xfer.totalTransfers() : 0L),
-                row("Logistics & Transfers", "In-Transit Shipments", xfer != null ? xfer.inTransitCount() : 0L),
-                row("Logistics & Transfers", "Safely Received Shipments", xfer != null ? xfer.receivedCount() : 0L),
-                row("Logistics & Transfers", "Discrepancy Shipments", xfer != null ? xfer.discrepancyCount() : 0L)
+                row(CAT_LOGISTICS_TRANSFERS, "Total Transfer Shipments", xfer != null ? xfer.totalTransfers() : 0L),
+                row(CAT_LOGISTICS_TRANSFERS, "In-Transit Shipments", xfer != null ? xfer.inTransitCount() : 0L),
+                row(CAT_LOGISTICS_TRANSFERS, "Safely Received Shipments", xfer != null ? xfer.receivedCount() : 0L),
+                row(CAT_LOGISTICS_TRANSFERS, "Discrepancy Shipments", xfer != null ? xfer.discrepancyCount() : 0L)
         );
 
         return new SheetData("Executive Summary", SUMMARY_HEADERS, summaryRows);
