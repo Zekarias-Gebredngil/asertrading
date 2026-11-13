@@ -422,9 +422,23 @@ public class OrderService {
     @Transactional(readOnly = true)
     public OrderDto getOrderById(Long id) {
         Order order = getOrderEntity(id);
-        if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
+
+        Optional<UserPrincipal> principalOpt = securityBranchService.getCurrentUserPrincipal();
+        if (principalOpt.isPresent()) {
+            UserPrincipal principal = principalOpt.get();
+            if (principal.getRole() == Role.CUSTOMER) {
+                boolean isOwner = (order.getCustomerId() != null && order.getCustomerId().equals(principal.getId()))
+                        || (order.getCustomerEmail() != null && order.getCustomerEmail().equalsIgnoreCase(principal.getEmail()));
+                if (!isOwner) {
+                    throw new AccessDeniedException("Access denied: You do not have permission to view this order.");
+                }
+            } else if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
+                throw new AccessDeniedException("Access denied: You do not have permission to view orders belonging to another branch.");
+            }
+        } else if (!securityBranchService.canAccessOrder(order.getCollectionBranchId(), order.getFulfillmentWarehouseId())) {
             throw new AccessDeniedException("Access denied: You do not have permission to view orders belonging to another branch.");
         }
+
         return mapToDto(order);
     }
 

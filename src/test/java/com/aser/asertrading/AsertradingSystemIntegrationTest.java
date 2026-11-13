@@ -3,6 +3,7 @@ package com.aser.asertrading;
 import com.aser.asertrading.catalog.domain.Product;
 import com.aser.asertrading.catalog.domain.ProductStatus;
 import com.aser.asertrading.catalog.repository.ProductRepository;
+import com.aser.asertrading.common.exception.BadRequestException;
 import com.aser.asertrading.identity.domain.Role;
 import com.aser.asertrading.identity.domain.User;
 import com.aser.asertrading.identity.repository.UserRepository;
@@ -22,12 +23,23 @@ import com.aser.asertrading.organization.web.dto.BranchDto;
 import com.aser.asertrading.organization.web.dto.BranchWarehouseRequest;
 import com.aser.asertrading.organization.web.dto.CreateBranchRequest;
 import com.aser.asertrading.sales.domain.DeliveryType;
+import com.aser.asertrading.sales.domain.Order;
+import com.aser.asertrading.sales.domain.OrderStatus;
 import com.aser.asertrading.sales.domain.PaymentMethod;
+import com.aser.asertrading.sales.repository.OrderRepository;
+import com.aser.asertrading.sales.service.CartService;
 import com.aser.asertrading.sales.service.OrderService;
+import com.aser.asertrading.sales.service.ReturnService;
+import com.aser.asertrading.sales.web.OrderController;
+import com.aser.asertrading.sales.web.ReturnController;
+import com.aser.asertrading.sales.web.dto.AddToCartRequest;
+import com.aser.asertrading.sales.web.dto.CartDto;
 import com.aser.asertrading.sales.web.dto.CheckoutQuoteRequest;
 import com.aser.asertrading.sales.web.dto.CheckoutQuoteResponse;
 import com.aser.asertrading.sales.web.dto.CreateOrderRequest;
+import com.aser.asertrading.sales.web.dto.CreateReturnRequest;
 import com.aser.asertrading.sales.web.dto.OrderDto;
+import com.aser.asertrading.sales.web.dto.OrderReturnDto;
 import com.aser.asertrading.transfer.domain.TransferStatus;
 import com.aser.asertrading.transfer.service.TransferWorkflowService;
 import com.aser.asertrading.transfer.web.dto.CreateTransferRequest;
@@ -104,6 +116,21 @@ class AsertradingSystemIntegrationTest {
 
     @Autowired
     private BranchService branchService;
+
+    @Autowired
+    private OrderController orderController;
+
+    @Autowired
+    private ReturnService returnService;
+
+    @Autowired
+    private ReturnController returnController;
+
+    @Autowired
+    private CartService cartService;
+
+    @Autowired
+    private OrderRepository orderRepository;
 
     @Test
     @DisplayName("Staff authentication returns valid JWT token and user authorities")
@@ -572,6 +599,195 @@ class AsertradingSystemIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://192.168.0.208:4200"))
                 .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
+    }
+
+    @Test
+    @DisplayName("BOLA/IDOR prevention: Unauthorized customer cannot cancel another customer's order")
+    @Transactional
+    void testOrderCancellationOwnershipBOLA() {
+        // Create 2 test customers
+        User custA = userRepository.findByUsername("test_cust_a").orElseGet(() ->
+                userRepository.save(User.builder()
+                        .username("test_cust_a")
+                        .email("cust_a@test.et")
+                        .fullName("Customer A")
+                        .passwordHash(passwordEncoder.encode("Secret123!"))
+                        .role(Role.CUSTOMER)
+                        .isActive(true)
+                        .build()));
+
+        User custB = userRepository.findByUsername("test_cust_b").orElseGet(() ->
+                userRepository.save(User.builder()
+                        .username("test_cust_b")
+                        .email("cust_b@test.et")
+                        .fullName("Customer B")
+                        .passwordHash(passwordEncoder.encode("Secret123!"))
+                        .role(Role.CUSTOMER)
+                        .isActive(true)
+                        .build()));
+
+        Product product = productRepository.findAll().stream()
+                .filter(p -> p.isPublished() && p.getStatus() == ProductStatus.ACTIVE && !p.isQuotationOnly())
+                .findFirst().orElseThrow();
+
+        // 1. Customer A places order
+        CreateOrderRequest orderReq = new CreateOrderRequest(
+                "Customer A",
+                "cust_a@test.et",
+                "+251911000111",
+                DeliveryType.COLLECTION,
+                null,
+                1L,
+                1L,
+                PaymentMethod.CASH,
+                null,
+                "Test order for Customer A",
+                List.of(new CreateOrderRequest.OrderItemRequest(product.getId(), BigDecimal.valueOf(1)))
+        );
+        OrderDto order = orderService.createOrder(orderReq, custA.getId(), "cust_a@test.et");
+        assertThat(order.status()).isEqualTo(OrderStatus.PENDING_PAYMENT);
+
+        // 2. Customer B attempts to cancel Customer A's order -> must fail with AccessDeniedException
+        UserPrincipal principalB = new UserPrincipal(custB);
+        UsernamePasswordAuthenticationToken authB = new UsernamePasswordAuthenticationToken(principalB, null, principalB.getAuthorities());
+        SecurityContextHolder.getContext().setAuthentication(authB);
+
+        try {
+            assertThatThrownBy(() -> orderController.cancelOrder(order.id(), "Unauthorized cancel attempt", authB))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("Access denied");
+
+            // 3. Customer A cancels their own order -> succeeds
+            UserPrincipal principalA = new UserPrincipal(custA);
+            UsernamePasswordAuthenticationToken authA = new UsernamePasswordAuthenticationToken(principalA, null, principalA.getAuthorities());
+            SecurityContextHolder.getContext().setAuthentication(authA);
+
+            OrderDto cancelled = orderController.cancelOrder(order.id(), "Customer cancelled own order", authA).data();
+            assertThat(cancelled.status()).isEqualTo(OrderStatus.CANCELLED);
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
+    @DisplayName("Order returns validate product eligibility, quantity bounds, and customer ownership")
+    @Transactional
+    void testOrderReturnValidationAndOwnership() {
+        User custA = userRepository.findByUsername("test_cust_a").orElseGet(() ->
+                userRepository.save(User.builder()
+                        .username("test_cust_a")
+                        .email("cust_a@test.et")
+                        .fullName("Customer A")
+                        .passwordHash(passwordEncoder.encode("Secret123!"))
+                        .role(Role.CUSTOMER)
+                        .isActive(true)
+                        .build()));
+
+        User custB = userRepository.findByUsername("test_cust_b").orElseGet(() ->
+                userRepository.save(User.builder()
+                        .username("test_cust_b")
+                        .email("cust_b@test.et")
+                        .fullName("Customer B")
+                        .passwordHash(passwordEncoder.encode("Secret123!"))
+                        .role(Role.CUSTOMER)
+                        .isActive(true)
+                        .build()));
+
+        Product product = productRepository.findAll().stream()
+                .filter(p -> p.isPublished() && p.getStatus() == ProductStatus.ACTIVE && !p.isQuotationOnly())
+                .findFirst().orElseThrow();
+
+        // Customer A places order and order is delivered
+        CreateOrderRequest orderReq = new CreateOrderRequest(
+                "Customer A",
+                "cust_a@test.et",
+                "+251911000111",
+                DeliveryType.COLLECTION,
+                null,
+                1L,
+                1L,
+                PaymentMethod.CASH,
+                null,
+                "Test delivered order for return",
+                List.of(new CreateOrderRequest.OrderItemRequest(product.getId(), BigDecimal.valueOf(2)))
+        );
+        OrderDto order = orderService.createOrder(orderReq, custA.getId(), "cust_a@test.et");
+
+        Order orderEntity = orderRepository.findById(order.id()).orElseThrow();
+        orderEntity.setStatus(OrderStatus.DELIVERED);
+        orderRepository.save(orderEntity);
+
+        UserPrincipal principalB = new UserPrincipal(custB);
+        UsernamePasswordAuthenticationToken authB = new UsernamePasswordAuthenticationToken(principalB, null, principalB.getAuthorities());
+
+        UserPrincipal principalA = new UserPrincipal(custA);
+        UsernamePasswordAuthenticationToken authA = new UsernamePasswordAuthenticationToken(principalA, null, principalA.getAuthorities());
+
+        try {
+            // Customer B tries to return Customer A's order -> AccessDeniedException
+            SecurityContextHolder.getContext().setAuthentication(authB);
+            CreateReturnRequest returnReqB = new CreateReturnRequest(
+                    "Faulty item",
+                    "Return notes",
+                    List.of(new CreateReturnRequest.ReturnItemRequest(product.getId(), BigDecimal.ONE, null))
+            );
+            assertThatThrownBy(() -> returnController.requestReturn(order.id(), returnReqB, authB))
+                    .isInstanceOf(AccessDeniedException.class);
+
+            // Customer A tries to return an unpurchased item or quantity > 2 -> BadRequestException
+            SecurityContextHolder.getContext().setAuthentication(authA);
+            CreateReturnRequest excessReturnReq = new CreateReturnRequest(
+                    "Excess return",
+                    "Notes",
+                    List.of(new CreateReturnRequest.ReturnItemRequest(product.getId(), BigDecimal.valueOf(10), null))
+            );
+            assertThatThrownBy(() -> returnController.requestReturn(order.id(), excessReturnReq, authA))
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessageContaining("exceeds remaining eligible quantity");
+
+            // Customer A submits valid return for 1 unit -> succeeds
+            CreateReturnRequest validReturnReq = new CreateReturnRequest(
+                    "Damaged packaging",
+                    "Return one unit",
+                    List.of(new CreateReturnRequest.ReturnItemRequest(product.getId(), BigDecimal.ONE, null))
+            );
+            OrderReturnDto returnDto = returnController.requestReturn(order.id(), validReturnReq, authA).getBody().data();
+            assertThat(returnDto).isNotNull();
+            assertThat(returnDto.orderId()).isEqualTo(order.id());
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
+    @DisplayName("Shopping cart items are strictly isolated per active session/customer")
+    @Transactional
+    void testCartItemSessionIsolation() {
+        Product product = productRepository.findAll().stream()
+                .filter(p -> p.isPublished() && p.getStatus() == ProductStatus.ACTIVE && !p.isQuotationOnly())
+                .findFirst().orElseThrow();
+
+        String sessionA = "session_cust_a_" + System.currentTimeMillis();
+        String sessionB = "session_cust_b_" + System.currentTimeMillis();
+
+        // Customer A adds item to cart
+        AddToCartRequest addReq = new AddToCartRequest(product.getId(), BigDecimal.valueOf(3), sessionA);
+        CartDto cartA = cartService.addToCart(addReq, null);
+        Long cartItemId = cartA.items().get(0).id();
+
+        // Customer B attempts to modify Customer A's cart item -> AccessDeniedException
+        assertThatThrownBy(() -> cartService.updateCartItem(cartItemId, BigDecimal.valueOf(5), null, sessionB))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Item does not belong to your active cart");
+
+        // Customer B attempts to delete Customer A's cart item -> AccessDeniedException
+        assertThatThrownBy(() -> cartService.removeCartItem(cartItemId, null, sessionB))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("Item does not belong to your active cart");
+
+        // Customer A updates own item -> succeeds
+        CartDto updatedA = cartService.updateCartItem(cartItemId, BigDecimal.valueOf(5), null, sessionA);
+        assertThat(updatedA.items().get(0).quantity()).isEqualByComparingTo(BigDecimal.valueOf(5));
     }
 }
 

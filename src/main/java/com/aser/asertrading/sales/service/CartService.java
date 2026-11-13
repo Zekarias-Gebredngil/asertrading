@@ -84,7 +84,10 @@ public class CartService {
 
         cartItem.setQuantity(cartItem.getQuantity().add(request.quantity()));
         cartItem.setUnitPrice(product.getSellingPrice()); // Server-side recalculated price
-        cartItemRepository.save(cartItem);
+        cartItem = cartItemRepository.save(cartItem);
+        if (cart.getItems() != null && !cart.getItems().contains(cartItem)) {
+            cart.getItems().add(cartItem);
+        }
 
         return mapToCartDto(cart);
     }
@@ -142,7 +145,9 @@ public class CartService {
     }
 
     private CartDto mapToCartDto(Cart cart) {
-        List<CartItem> items = cart.getItems() != null ? cart.getItems() : new ArrayList<>();
+        List<CartItem> items = cart.getId() != null
+                ? cartItemRepository.findByCartId(cart.getId())
+                : (cart.getItems() != null ? cart.getItems() : new ArrayList<>());
         Map<Long, Product> productMap = productRepository.findAllById(
                 items.stream().map(CartItem::getProductId).toList()
         ).stream().collect(Collectors.toMap(Product::getId, p -> p));
