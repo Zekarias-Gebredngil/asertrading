@@ -7,9 +7,12 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.List;
 
 @Configuration
 public class OpenApiConfig {
@@ -29,6 +32,10 @@ public class OpenApiConfig {
                         .version("1.0.0")
                         .contact(new Contact().name("Aser Trading").email("info@asertrading.com"))
                         .license(new License().name("Proprietary")))
+                .servers(List.of(
+                        new Server().url("/").description("Current Server (Relative path - recommended)"),
+                        new Server().url("http://localhost:8085").description("Local Development Server (port 8085)")
+                ))
                 .addSecurityItem(new SecurityRequirement().addList(securitySchemeName))
                 .components(new Components()
                         .addSecuritySchemes(securitySchemeName,
