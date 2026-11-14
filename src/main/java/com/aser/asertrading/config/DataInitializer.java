@@ -162,6 +162,24 @@ public class DataInitializer implements CommandLineRunner {
                 .isActive(true)
                 .build());
 
+        User auditor = userRepository.save(User.builder()
+                .username("auditor")
+                .email("auditor@asertrading.com")
+                .fullName("Corporate Financial Auditor")
+                .role(Role.ACCOUNTANT_AUDITOR)
+                .passwordHash(passwordEncoder.encode("Auditor@123456"))
+                .isActive(true)
+                .build());
+
+        User director = userRepository.save(User.builder()
+                .username("director")
+                .email("director@asertrading.com")
+                .fullName("Managing Director")
+                .role(Role.COMPANY_MANAGER)
+                .passwordHash(passwordEncoder.encode("Director@123456"))
+                .isActive(true)
+                .build());
+
         userBranchAccessRepository.save(UserBranchAccess.builder().userId(admin.getId()).branchId(hq.getId()).build());
         userBranchAccessRepository.save(UserBranchAccess.builder().userId(admin.getId()).branchId(bole.getId()).build());
         userBranchAccessRepository.save(UserBranchAccess.builder().userId(admin.getId()).branchId(merkato.getId()).build());

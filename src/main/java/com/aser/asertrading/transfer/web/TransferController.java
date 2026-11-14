@@ -4,7 +4,12 @@ import com.aser.asertrading.common.dto.ApiResponse;
 import com.aser.asertrading.common.dto.PagedResponse;
 import com.aser.asertrading.transfer.domain.TransferStatus;
 import com.aser.asertrading.transfer.service.TransferWorkflowService;
-import com.aser.asertrading.transfer.web.dto.*;
+import com.aser.asertrading.transfer.web.dto.CreateTransferRequest;
+import com.aser.asertrading.transfer.web.dto.ReportDiscrepancyRequest;
+import com.aser.asertrading.transfer.web.dto.StockTransferDto;
+import com.aser.asertrading.transfer.web.dto.TransferDiscrepancyDto;
+import com.aser.asertrading.transfer.web.dto.TransferEventDto;
+import com.aser.asertrading.transfer.web.dto.TransferReceiveRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -16,7 +21,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
@@ -114,14 +125,14 @@ public class TransferController {
 
     @GetMapping("/{id}/events")
     @Operation(summary = "Get audit event history for a transfer")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<List<TransferEventDto>> getTransferEvents(@PathVariable Long id) {
         return ApiResponse.success(transferWorkflowService.getTransferEvents(id));
     }
 
     @GetMapping("/{id}/discrepancies")
     @Operation(summary = "Get discrepancy reports for a transfer")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<List<TransferDiscrepancyDto>> getDiscrepancies(@PathVariable Long id) {
         return ApiResponse.success(transferWorkflowService.getDiscrepancies(id));
     }

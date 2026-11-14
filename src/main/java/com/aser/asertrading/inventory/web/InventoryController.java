@@ -5,7 +5,12 @@ import com.aser.asertrading.common.dto.PagedResponse;
 import com.aser.asertrading.common.export.ExcelExportService;
 import com.aser.asertrading.inventory.domain.StockMovementType;
 import com.aser.asertrading.inventory.service.InventoryService;
-import com.aser.asertrading.inventory.web.dto.*;
+import com.aser.asertrading.inventory.web.dto.InventoryAdjustmentRequest;
+import com.aser.asertrading.inventory.web.dto.LowStockAlertDto;
+import com.aser.asertrading.inventory.web.dto.StockBalanceDto;
+import com.aser.asertrading.inventory.web.dto.StockIssueRequest;
+import com.aser.asertrading.inventory.web.dto.StockMovementDto;
+import com.aser.asertrading.inventory.web.dto.StockReceiptRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,7 +25,12 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -82,7 +92,7 @@ public class InventoryController {
 
     @GetMapping("/alerts/low-stock")
     @Operation(summary = "Get low stock and reorder alerts")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'PROCUREMENT_OFFICER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'PROCUREMENT_OFFICER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<List<LowStockAlertDto>> getLowStockAlerts(@RequestParam(required = false) Long warehouseId) {
         return ApiResponse.success(inventoryService.getLowStockAlerts(warehouseId));
     }

@@ -143,7 +143,7 @@ public class OrderController {
 
     @PatchMapping("/orders/{id}/status")
     @Operation(summary = "Update order status and optional payment status")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'BRANCH_MANAGER', 'SALES_OFFICER', 'STOREKEEPER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'BRANCH_MANAGER', 'SALES_OFFICER', 'STOREKEEPER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<OrderDto> updateOrderStatus(
             @PathVariable Long id,
             @Valid @RequestBody UpdateOrderStatusRequest request,

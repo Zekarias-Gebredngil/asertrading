@@ -18,7 +18,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/products")
@@ -44,14 +52,14 @@ public class AdminProductController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Get product details by ID")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'PROCUREMENT_OFFICER', 'SALES_OFFICER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'PROCUREMENT_OFFICER', 'SALES_OFFICER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<ProductDto> getProductById(@PathVariable Long id) {
         return ApiResponse.success(productService.getProductById(id));
     }
 
     @GetMapping("/sku/{sku}")
     @Operation(summary = "Get product details by SKU")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'PROCUREMENT_OFFICER', 'SALES_OFFICER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'STOREKEEPER', 'PROCUREMENT_OFFICER', 'SALES_OFFICER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<ProductDto> getProductBySku(@PathVariable String sku) {
         return ApiResponse.success(productService.getProductBySku(sku));
     }

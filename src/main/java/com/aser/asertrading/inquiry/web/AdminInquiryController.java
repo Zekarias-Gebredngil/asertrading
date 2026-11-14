@@ -16,19 +16,25 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/inquiries")
 @RequiredArgsConstructor
 @Tag(name = "Customer Inquiries Administration", description = "Endpoints for staff to review inquiries and send custom price quotations")
-@PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'SALES_OFFICER', 'WEBSITE_MANAGER')")
 public class AdminInquiryController {
 
     private final InquiryService inquiryService;
 
     @GetMapping
     @Operation(summary = "List customer inquiries with optional status or type filter")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'SALES_OFFICER', 'WEBSITE_MANAGER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<PagedResponse<CustomerInquiryDto>> getInquiries(
             @RequestParam(required = false) InquiryStatus status,
             @RequestParam(required = false) InquiryType type,
@@ -39,12 +45,14 @@ public class AdminInquiryController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Get inquiry details by ID")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'SALES_OFFICER', 'WEBSITE_MANAGER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<CustomerInquiryDto> getInquiryById(@PathVariable Long id) {
         return ApiResponse.success(inquiryService.getInquiryById(id));
     }
 
     @PostMapping("/{id}/quote")
     @Operation(summary = "Provide a price quotation and notes for a customer inquiry")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'SALES_OFFICER', 'WEBSITE_MANAGER')")
     public ApiResponse<CustomerInquiryDto> quoteInquiry(
             @PathVariable Long id,
             @Valid @RequestBody QuoteInquiryRequest request,

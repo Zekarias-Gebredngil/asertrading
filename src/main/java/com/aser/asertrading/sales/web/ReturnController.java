@@ -19,7 +19,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -47,7 +53,7 @@ public class ReturnController {
 
     @GetMapping("/returns")
     @Operation(summary = "List return requests")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'SALES_OFFICER', 'STOREKEEPER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'SALES_OFFICER', 'STOREKEEPER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<PagedResponse<OrderReturnDto>> getReturns(
             @RequestParam(required = false) ReturnStatus status,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
@@ -57,7 +63,7 @@ public class ReturnController {
 
     @GetMapping("/returns/{id}")
     @Operation(summary = "Get return details by ID")
-    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'SALES_OFFICER', 'STOREKEEPER')")
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMINISTRATOR', 'COMPANY_MANAGER', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'SALES_OFFICER', 'STOREKEEPER', 'ACCOUNTANT_AUDITOR')")
     public ApiResponse<OrderReturnDto> getReturnById(@PathVariable Long id) {
         return ApiResponse.success(returnService.getReturnById(id));
     }

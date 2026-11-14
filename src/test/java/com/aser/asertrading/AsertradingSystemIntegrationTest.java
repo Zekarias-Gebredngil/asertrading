@@ -67,6 +67,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -84,7 +85,9 @@ class AsertradingSystemIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        this.mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+        this.mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                .apply(springSecurity())
+                .build();
     }
 
     @Autowired
@@ -788,6 +791,86 @@ class AsertradingSystemIntegrationTest {
         // Customer A updates own item -> succeeds
         CartDto updatedA = cartService.updateCartItem(cartItemId, BigDecimal.valueOf(5), null, sessionA);
         assertThat(updatedA.items().get(0).quantity()).isEqualByComparingTo(BigDecimal.valueOf(5));
+    }
+
+    @Test
+    @DisplayName("Accountant / Auditor role can inspect financials, audit logs, and reports across branches but is denied physical stock alterations and quotation editing")
+    void testAccountantAuditorRoleAccessAndSegregationOfDuties() throws Exception {
+        // Ensure auditor exists
+        if (userRepository.findByUsername("auditor").isEmpty()) {
+            userRepository.save(User.builder()
+                    .username("auditor")
+                    .email("auditor@asertrading.com")
+                    .fullName("Corporate Financial Auditor")
+                    .role(Role.ACCOUNTANT_AUDITOR)
+                    .passwordHash(passwordEncoder.encode("Auditor@123456"))
+                    .isActive(true)
+                    .build());
+        }
+
+        // 1. Authenticate as auditor
+        LoginRequest loginRequest = new LoginRequest("auditor", "Auditor@123456");
+        MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("ACCOUNTANT_AUDITOR"))
+                .andReturn();
+
+        AuthResponse auth = objectMapper.readValue(
+                objectMapper.readTree(loginResult.getResponse().getContentAsString()).get("data").toString(),
+                AuthResponse.class
+        );
+        String token = auth.accessToken();
+
+        Product product = productRepository.findAll().get(0);
+
+        // 2. Permitted Access: View product details by ID
+        mockMvc.perform(get("/api/v1/products/" + product.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.sku").value(product.getSku()));
+
+        // 3. Permitted Access: View return requests
+        mockMvc.perform(get("/api/v1/returns")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // 4. Permitted Access: View audit logs
+        mockMvc.perform(get("/api/v1/audit-logs")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // 5. Permitted Access: View low stock alerts
+        mockMvc.perform(get("/api/v1/inventory/alerts/low-stock")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // 6. Permitted Access: View financial stock valuation report
+        mockMvc.perform(get("/api/v1/reports/stock-valuation")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        // 7. Segregation of Duties: Auditor CANNOT create or update catalog products
+        mockMvc.perform(post("/api/v1/products")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sku\":\"AUD-TEST\",\"name\":\"Auditor Product\",\"categoryId\":1,\"baseUnitId\":1,\"isQuotationOnly\":false}"))
+                .andExpect(status().isForbidden());
+
+        // 8. Segregation of Duties: Auditor CANNOT submit physical stock adjustments
+        mockMvc.perform(post("/api/v1/inventory/adjustments")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"warehouseId\":1,\"productId\":" + product.getId() + ",\"quantityDelta\":10,\"reasonCode\":\"DAMAGE\"}"))
+                .andExpect(status().isForbidden());
+
+        // 9. Segregation of Duties: Auditor CANNOT issue custom price quotations
+        mockMvc.perform(post("/api/v1/inquiries/1/quote")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"quotedPrice\":50000,\"adminNotes\":\"Unauthorized quote from auditor\"}"))
+                .andExpect(status().isForbidden());
     }
 }
 
